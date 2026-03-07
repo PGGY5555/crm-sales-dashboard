@@ -8,9 +8,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef } from "react";
 import {
   RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Shield, Key, Save,
-  Upload, FileSpreadsheet, Users, ShoppingCart, Package
+  Upload, FileSpreadsheet, Users, ShoppingCart, Package, Trash2
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type ExcelFileType = "customers" | "orders" | "products";
 
@@ -80,6 +92,60 @@ export default function Sync() {
 
   const handleSync = () => {
     syncMutation.mutate();
+  };
+
+  // Clear data states
+  const [clearTargets, setClearTargets] = useState<Set<string>>(new Set(["all"]));
+  const utils = trpc.useUtils();
+
+  const clearMutation = trpc.sync.clearData.useMutation({
+    onSuccess: (result) => {
+      const entries = Object.entries(result.deleted)
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => {
+          const labels: Record<string, string> = { customers: "客戶", orders: "訂單", orderItems: "訂單明細", products: "商品" };
+          return `${labels[k] || k} ${v} 筆`;
+        });
+      toast.success(`清除完成！${entries.join("、") || "無資料需清除"}`);
+      // Invalidate all dashboard queries
+      utils.dashboard.invalidate();
+      refetchStatus();
+    },
+    onError: (error) => {
+      toast.error(`清除失敗: ${error.message}`);
+    },
+  });
+
+  const handleClearData = () => {
+    const targets = Array.from(clearTargets) as ("customers" | "orders" | "products" | "all")[];
+    clearMutation.mutate({ targets });
+  };
+
+  const toggleClearTarget = (target: string) => {
+    setClearTargets(prev => {
+      const next = new Set(prev);
+      if (target === "all") {
+        if (next.has("all")) {
+          next.clear();
+        } else {
+          next.clear();
+          next.add("all");
+        }
+      } else {
+        next.delete("all");
+        if (next.has(target)) {
+          next.delete(target);
+        } else {
+          next.add(target);
+        }
+        // If all three selected, switch to "all"
+        if (next.has("customers") && next.has("orders") && next.has("products")) {
+          next.clear();
+          next.add("all");
+        }
+      }
+      return next;
+    });
   };
 
   // Excel upload handler
@@ -338,6 +404,103 @@ export default function Sync() {
               productFileRef,
             )}
           </div>
+
+          {/* Clear Data Card */}
+          <Card className="border-destructive/30">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Trash2 className="h-5 w-5 text-destructive" />
+                <CardTitle className="text-base">清除資料</CardTitle>
+              </div>
+              <CardDescription>重新匯入前可先清除舊資料，避免重複</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="clear-all"
+                    checked={clearTargets.has("all")}
+                    onCheckedChange={() => toggleClearTarget("all")}
+                  />
+                  <label htmlFor="clear-all" className="text-sm font-medium cursor-pointer">
+                    全部清除（客戶 + 訂單 + 商品）
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2 pl-4">
+                  <Checkbox
+                    id="clear-customers"
+                    checked={clearTargets.has("all") || clearTargets.has("customers")}
+                    onCheckedChange={() => toggleClearTarget("customers")}
+                    disabled={clearTargets.has("all")}
+                  />
+                  <label htmlFor="clear-customers" className="text-sm cursor-pointer">
+                    客戶資料
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2 pl-4">
+                  <Checkbox
+                    id="clear-orders"
+                    checked={clearTargets.has("all") || clearTargets.has("orders")}
+                    onCheckedChange={() => toggleClearTarget("orders")}
+                    disabled={clearTargets.has("all")}
+                  />
+                  <label htmlFor="clear-orders" className="text-sm cursor-pointer">
+                    訂單資料（含訂單明細）
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2 pl-4">
+                  <Checkbox
+                    id="clear-products"
+                    checked={clearTargets.has("all") || clearTargets.has("products")}
+                    onCheckedChange={() => toggleClearTarget("products")}
+                    disabled={clearTargets.has("all")}
+                  />
+                  <label htmlFor="clear-products" className="text-sm cursor-pointer">
+                    商品資料
+                  </label>
+                </div>
+              </div>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    disabled={clearTargets.size === 0 || clearMutation.isPending}
+                  >
+                    {clearMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        清除中...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        清除選取的資料
+                      </>
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>確認清除資料？</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      此操作將永久刪除選取的資料，無法復原。請確認已備份重要資料。
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>取消</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleClearData}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      確認清除
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

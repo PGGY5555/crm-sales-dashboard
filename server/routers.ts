@@ -15,6 +15,7 @@ import {
   saveSetting,
   getMaskedSetting,
   getCrmCredentials,
+  clearAllData,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
@@ -141,6 +142,18 @@ export const appRouter = router({
           return { success: false, error: "尚未設定 API 憑證，請先在設定頁面儲存 API Token 和 App Name" };
         }
         return syncFromShopnex(creds.apiToken, creds.appName);
+      }),
+
+    /** Clear all imported data (admin only) */
+    clearData: protectedProcedure
+      .input(z.object({
+        targets: z.array(z.enum(["customers", "orders", "products", "all"])).min(1),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可清除資料" });
+        }
+        return clearAllData(input.targets);
       }),
   }),
 

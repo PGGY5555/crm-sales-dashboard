@@ -1,6 +1,6 @@
 import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, customers, orders, syncLogs, settings } from "../drizzle/schema";
+import { InsertUser, users, customers, orders, syncLogs, settings, orderItems, products } from "../drizzle/schema";
 import { encrypt, decrypt, maskToken } from "./crypto";
 import { ENV } from './_core/env';
 
@@ -524,6 +524,35 @@ export async function getCrmCredentials(): Promise<{ apiToken: string; appName: 
   const appName = await getSettingValue("shopnex_app_name");
   if (!apiToken || !appName) return null;
   return { apiToken, appName };
+}
+
+/** Clear all imported data by target type */
+export async function clearAllData(targets: string[]): Promise<{ success: boolean; deleted: Record<string, number> }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const shouldClear = (t: string) => targets.includes("all") || targets.includes(t);
+  const deleted: Record<string, number> = {};
+
+  if (shouldClear("orders")) {
+    // Delete order items first (foreign key dependency)
+    const [itemResult] = await db.delete(orderItems).where(sql`1=1`);
+    deleted.orderItems = (itemResult as any).affectedRows || 0;
+    const [orderResult] = await db.delete(orders).where(sql`1=1`);
+    deleted.orders = (orderResult as any).affectedRows || 0;
+  }
+
+  if (shouldClear("customers")) {
+    const [custResult] = await db.delete(customers).where(sql`1=1`);
+    deleted.customers = (custResult as any).affectedRows || 0;
+  }
+
+  if (shouldClear("products")) {
+    const [prodResult] = await db.delete(products).where(sql`1=1`);
+    deleted.products = (prodResult as any).affectedRows || 0;
+  }
+
+  return { success: true, deleted };
 }
 
 /** Get summary data for LLM context */
