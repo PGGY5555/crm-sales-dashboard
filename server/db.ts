@@ -825,3 +825,84 @@ export async function getOrderFilterOptions() {
     shippings: shippings.map(r => r.val).filter((v): v is string => !!v),
   };
 }
+
+/** Batch delete customers by IDs */
+export async function batchDeleteCustomers(ids: number[]): Promise<{ deleted: number }> {
+  const db = await getDb();
+  if (!db || ids.length === 0) return { deleted: 0 };
+
+  // Also delete orders and order items belonging to these customers
+  const customerOrders = await db.select({ id: orders.id }).from(orders).where(inArray(orders.customerId, ids));
+  const orderIds = customerOrders.map(o => o.id);
+  if (orderIds.length > 0) {
+    await db.delete(orderItems).where(inArray(orderItems.orderId, orderIds));
+    await db.delete(orders).where(inArray(orders.id, orderIds));
+  }
+
+  const result = await db.delete(customers).where(inArray(customers.id, ids));
+  return { deleted: result[0]?.affectedRows ?? ids.length };
+}
+
+/** Batch delete orders by IDs (also deletes related order items) */
+export async function batchDeleteOrders(ids: number[]): Promise<{ deleted: number }> {
+  const db = await getDb();
+  if (!db || ids.length === 0) return { deleted: 0 };
+
+  // Delete order items first
+  await db.delete(orderItems).where(inArray(orderItems.orderId, ids));
+
+  // Delete orders
+  const result = await db.delete(orders).where(inArray(orders.id, ids));
+
+  // Recalculate customer stats for affected customers
+  // Get unique customer IDs from remaining orders
+  const affectedCustomerIds = await db.selectDistinct({ customerId: orders.customerId })
+    .from(orders)
+    .where(isNotNull(orders.customerId));
+
+  // For each customer, update totalSpent, totalOrders, lastPurchaseDate, lastPurchaseAmount, lastShipmentDate
+  for (const { customerId } of affectedCustomerIds) {
+    if (!customerId) continue;
+    const stats = await db.select({
+      totalSpent: sql<number>`COALESCE(SUM(${orders.total}), 0)`,
+      totalOrders: sql<number>`COUNT(*)`,
+      lastPurchaseDate: sql<number | null>`MAX(${orders.orderDate})`,
+      lastPurchaseAmount: sql<number | null>`NULL`,
+      lastShipmentDate: sql<number | null>`MAX(${orders.shippedAt})`,
+    }).from(orders).where(eq(orders.customerId, customerId));
+
+    if (stats[0]) {
+      // Get last order amount
+      const lastOrder = await db.select({ total: orders.total })
+        .from(orders)
+        .where(eq(orders.customerId, customerId))
+        .orderBy(desc(orders.orderDate))
+        .limit(1);
+
+      await db.update(customers).set({
+        totalSpent: String(stats[0].totalSpent),
+        totalOrders: stats[0].totalOrders,
+        lastPurchaseDate: stats[0].lastPurchaseDate ? new Date(stats[0].lastPurchaseDate) : null,
+        lastPurchaseAmount: lastOrder[0]?.total ?? null,
+        lastShipmentAt: stats[0].lastShipmentDate ? new Date(stats[0].lastShipmentDate) : null,
+      }).where(eq(customers.id, customerId));
+    }
+  }
+
+  // Also update customers who no longer have any orders
+  const allCustomerIds = await db.select({ id: customers.id }).from(customers);
+  const customersWithOrders = new Set(affectedCustomerIds.map(c => c.customerId));
+  for (const { id } of allCustomerIds) {
+    if (!customersWithOrders.has(id)) {
+      await db.update(customers).set({
+        totalSpent: "0",
+        totalOrders: 0,
+        lastPurchaseDate: null,
+        lastPurchaseAmount: null,
+        lastShipmentAt: null,
+      }).where(eq(customers.id, id));
+    }
+  }
+
+  return { deleted: result[0]?.affectedRows ?? ids.length };
+}

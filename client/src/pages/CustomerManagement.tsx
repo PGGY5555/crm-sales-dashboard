@@ -6,7 +6,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Search, Download, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
 const SEARCH_FIELDS = [
@@ -38,6 +41,8 @@ const COMPARE_OPS = [
 type SearchFieldType = typeof SEARCH_FIELDS[number]["value"];
 
 export default function CustomerManagement() {
+  const utils = trpc.useUtils();
+
   // X-axis search
   const [searchField, setSearchField] = useState<SearchFieldType>("customerName");
   const [searchValue, setSearchValue] = useState("");
@@ -66,7 +71,27 @@ export default function CustomerManagement() {
   const [showFilters, setShowFilters] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
   const { data: memberLevels } = trpc.customerMgmt.memberLevels.useQuery();
+
+  const batchDeleteMutation = trpc.customerMgmt.batchDelete.useMutation({
+    onSuccess: (result) => {
+      toast.success(`已刪除 ${result.deleted} 筆客戶資料及其關聯訂單`);
+      setSelectedIds(new Set());
+      utils.customerMgmt.list.invalidate();
+      utils.dashboard.kpi.invalidate();
+      utils.dashboard.funnel.invalidate();
+      utils.dashboard.lifecycle.invalidate();
+      utils.dashboard.trend.invalidate();
+      utils.dashboard.salesReps.invalidate();
+      utils.dashboard.customers.invalidate();
+    },
+    onError: (err) => {
+      toast.error(`刪除失敗: ${err.message}`);
+    },
+  });
 
   const buildFilters = useCallback(() => {
     const filters: Record<string, any> = { page, limit: 50 };
@@ -118,21 +143,52 @@ export default function CustomerManagement() {
     setPage(0);
   };
 
+  // Selection helpers
+  const currentPageIds = useMemo(() => (data?.items || []).map(c => c.id), [data]);
+  const allCurrentSelected = currentPageIds.length > 0 && currentPageIds.every(id => selectedIds.has(id));
+  const someCurrentSelected = currentPageIds.some(id => selectedIds.has(id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allCurrentSelected) {
+        currentPageIds.forEach(id => next.delete(id));
+      } else {
+        currentPageIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handleExport = async () => {
     setIsExporting(true);
     try {
+      // If items are selected, export only selected items from current data
+      if (selectedIds.size > 0) {
+        const selectedItems = (data?.items || []).filter(c => selectedIds.has(c.id));
+        exportToExcel(selectedItems);
+        return;
+      }
+      // Otherwise export all filtered results
       const filters = buildFilters();
       delete filters.page;
       delete filters.limit;
       const items = await (window as any).__trpcClient?.customerMgmt.export.query(filters);
       if (!items) {
-        // Fallback: use current page data
         exportToExcel(data?.items || []);
         return;
       }
       exportToExcel(items);
     } catch {
-      // Fallback: export current page
       exportToExcel(data?.items || []);
     } finally {
       setIsExporting(false);
@@ -163,6 +219,10 @@ export default function CustomerManagement() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "客戶資料");
     XLSX.writeFile(wb, `客戶資料_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const handleBatchDelete = () => {
+    batchDeleteMutation.mutate({ ids: Array.from(selectedIds) });
   };
 
   const totalPages = Math.ceil((data?.total || 0) / 50);
@@ -201,12 +261,44 @@ export default function CustomerManagement() {
           <h1 className="text-2xl font-bold">客戶資料管理</h1>
           <p className="text-muted-foreground text-sm mt-1">
             共 {data?.total ?? 0} 筆客戶資料
+            {selectedIds.size > 0 && (
+              <span className="ml-2 text-primary font-medium">
+                （已勾選 {selectedIds.size} 筆）
+              </span>
+            )}
           </p>
         </div>
-        <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline">
-          <Download className="w-4 h-4 mr-2" />
-          {isExporting ? "匯出中..." : "匯出 Excel"}
-        </Button>
+        <div className="flex gap-2">
+          {selectedIds.size > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm" disabled={batchDeleteMutation.isPending}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${selectedIds.size} 筆`}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>確認刪除客戶資料</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    即將刪除 <strong>{selectedIds.size}</strong> 筆客戶資料及其所有關聯訂單。
+                    此操作無法復原，刪除後各項統計數據（KPI、銷售漏斗、客戶分析等）將自動更新。
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleBatchDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    確認刪除
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
+            <Download className="w-4 h-4 mr-2" />
+            {isExporting ? "匯出中..." : selectedIds.size > 0 ? `匯出 ${selectedIds.size} 筆` : "匯出 Excel"}
+          </Button>
+        </div>
       </div>
 
       {/* X-axis: Search */}
@@ -401,6 +493,14 @@ export default function CustomerManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[40px]">
+                    <Checkbox
+                      checked={allCurrentSelected}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="全選"
+                      className={someCurrentSelected && !allCurrentSelected ? "opacity-50" : ""}
+                    />
+                  </TableHead>
                   <TableHead className="min-w-[100px]">顧客姓名</TableHead>
                   <TableHead className="min-w-[120px]">電子信箱</TableHead>
                   <TableHead className="min-w-[100px]">手機</TableHead>
@@ -417,15 +517,22 @@ export default function CustomerManagement() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
+                    <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
                   </TableRow>
                 ) : !data?.items?.length ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">無符合條件的客戶資料</TableCell>
+                    <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">無符合條件的客戶資料</TableCell>
                   </TableRow>
                 ) : (
                   data.items.map((c) => (
-                    <TableRow key={c.id}>
+                    <TableRow key={c.id} className={selectedIds.has(c.id) ? "bg-primary/5" : ""}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(c.id)}
+                          onCheckedChange={() => toggleSelect(c.id)}
+                          aria-label={`選取 ${c.name}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">{c.name || "-"}</TableCell>
                       <TableCell className="text-sm">{c.email || "-"}</TableCell>
                       <TableCell className="text-sm">{c.phone || "-"}</TableCell>

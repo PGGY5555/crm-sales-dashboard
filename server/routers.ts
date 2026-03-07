@@ -22,6 +22,8 @@ import {
   getOrderManagement,
   getOrderManagementExport,
   getOrderFilterOptions,
+  batchDeleteCustomers,
+  batchDeleteOrders,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
@@ -224,6 +226,15 @@ export const appRouter = router({
     memberLevels: protectedProcedure.query(async () => {
       return getDistinctMemberLevels();
     }),
+
+    batchDelete: protectedProcedure
+      .input(z.object({ ids: z.array(z.number()).min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
+        }
+        return batchDeleteCustomers(input.ids);
+      }),
   }),
 
   /** Order management with advanced filters */
@@ -263,6 +274,15 @@ export const appRouter = router({
     filterOptions: protectedProcedure.query(async () => {
       return getOrderFilterOptions();
     }),
+
+    batchDelete: protectedProcedure
+      .input(z.object({ ids: z.array(z.number()).min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
+        }
+        return batchDeleteOrders(input.ids);
+      }),
   }),
 
   /** AI chat for sales insights */
