@@ -14,6 +14,7 @@ import Sync from "./pages/Sync";
 import CustomerManagement from "./pages/CustomerManagement";
 import OrderManagement from "./pages/OrderManagement";
 import CustomerDetail from "./pages/CustomerDetail";
+import OrderDetail from "./pages/OrderDetail";
 
 function Router() {
   return (
@@ -28,6 +29,8 @@ function Router() {
         <Route path={"/customer-management"} component={CustomerManagement} />
         <Route path={"/order-management"} component={OrderManagement} />
         <Route path={"/customer/:id"} component={CustomerDetail} />
+        <Route path={"/customer-detail/:id"} component={CustomerDetail} />
+        <Route path={"/order-detail/:id"} component={OrderDetail} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

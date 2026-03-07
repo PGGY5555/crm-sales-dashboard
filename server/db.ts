@@ -743,7 +743,7 @@ export async function getDistinctMemberLevels(): Promise<string[]> {
 
 export interface OrderManagementFilters {
   // X-axis: text search fields
-  searchField?: "orderNumber" | "customerName" | "customerPhone" | "customerEmail" | "recipientName" | "recipientPhone" | "recipientEmail";
+  searchField?: "orderNumber" | "customerName" | "customerPhone" | "customerEmail" | "recipientName" | "recipientPhone" | "recipientEmail" | "deliveryNumber";
   searchValue?: string;
   // Y-axis: condition filters
   orderSource?: string;
@@ -752,6 +752,7 @@ export interface OrderManagementFilters {
   shippingAddress?: string;
   shippedFrom?: Date;
   shippedTo?: Date;
+  logisticsStatus?: string;
   // Pagination
   page?: number;
   limit?: number;
@@ -774,6 +775,7 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
       case "recipientName": conditions.push(like(orders.recipientName, val)); break;
       case "recipientPhone": conditions.push(like(orders.recipientPhone, val)); break;
       case "recipientEmail": conditions.push(like(orders.recipientEmail, val)); break;
+      case "deliveryNumber": conditions.push(like(orders.deliveryNumber, val)); break;
     }
   }
 
@@ -784,6 +786,7 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
   if (filters.shippingAddress) conditions.push(like(orders.shippingAddress, `%${filters.shippingAddress}%`));
   if (filters.shippedFrom) conditions.push(gte(orders.shippedAt, filters.shippedFrom));
   if (filters.shippedTo) conditions.push(lte(orders.shippedAt, filters.shippedTo));
+  if (filters.logisticsStatus) conditions.push(eq(orders.logisticsStatus, filters.logisticsStatus));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters.page ?? 0;
@@ -987,5 +990,44 @@ export async function getCustomerDetail(customerId: number) {
       ...o,
       items: itemsByOrder[o.id] || [],
     })),
+  };
+}
+
+/** Get order detail by ID */
+export async function getOrderDetail(orderId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.id, orderId));
+  if (!order) return null;
+
+  // Get customer info
+  let customer = null;
+  if (order.customerId) {
+    const [c] = await db.select().from(customers).where(eq(customers.id, order.customerId));
+    customer = c || null;
+  }
+  if (!customer && order.customerExternalId) {
+    const [c] = await db.select().from(customers).where(eq(customers.externalId, order.customerExternalId));
+    customer = c || null;
+  }
+  if (!customer && order.customerEmail) {
+    const [c] = await db.select().from(customers).where(eq(customers.email, order.customerEmail));
+    customer = c || null;
+  }
+
+  // Get order items
+  const items = await db
+    .select()
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId));
+
+  return {
+    order,
+    customer,
+    items,
   };
 }

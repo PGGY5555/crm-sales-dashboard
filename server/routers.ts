@@ -25,6 +25,7 @@ import {
   batchDeleteCustomers,
   batchDeleteOrders,
   getCustomerDetail,
+  getOrderDetail,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
@@ -254,7 +255,7 @@ export const appRouter = router({
   orderMgmt: router({
     list: protectedProcedure
       .input(z.object({
-        searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "deliveryNumber"]).optional(),
         searchValue: z.string().optional(),
         orderSource: z.string().optional(),
         paymentMethod: z.string().optional(),
@@ -262,6 +263,7 @@ export const appRouter = router({
         shippingAddress: z.string().optional(),
         shippedFrom: z.date().optional(),
         shippedTo: z.date().optional(),
+        logisticsStatus: z.string().optional(),
         page: z.number().default(0),
         limit: z.number().default(50),
       }).optional())
@@ -271,7 +273,7 @@ export const appRouter = router({
 
     export: protectedProcedure
       .input(z.object({
-        searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "deliveryNumber"]).optional(),
         searchValue: z.string().optional(),
         orderSource: z.string().optional(),
         paymentMethod: z.string().optional(),
@@ -279,6 +281,7 @@ export const appRouter = router({
         shippingAddress: z.string().optional(),
         shippedFrom: z.date().optional(),
         shippedTo: z.date().optional(),
+        logisticsStatus: z.string().optional(),
       }).optional())
       .query(async ({ input }) => {
         return getOrderManagementExport(input ?? {});
@@ -287,6 +290,12 @@ export const appRouter = router({
     filterOptions: protectedProcedure.query(async () => {
       return getOrderFilterOptions();
     }),
+
+    detail: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return getOrderDetail(input.id);
+      }),
 
     batchDelete: protectedProcedure
       .input(z.object({ ids: z.array(z.number()).min(1) }))

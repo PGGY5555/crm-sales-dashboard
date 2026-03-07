@@ -8,7 +8,9 @@ import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, Mail, Phone, Calendar, Tag, CreditCard, ShoppingCart, Package, User, MessageSquare, Shield, Hash } from "lucide-react";
 
 export default function CustomerDetail() {
-  const [, params] = useRoute("/customer/:id");
+  const [matched1, params1] = useRoute("/customer/:id");
+  const [matched2, params2] = useRoute("/customer-detail/:id");
+  const params = matched1 ? params1 : params2;
   const customerId = Number(params?.id);
 
   const { data, isLoading, error } = trpc.customerMgmt.detail.useQuery(
@@ -251,7 +253,11 @@ export default function CustomerDetail() {
                 ) : (
                   orders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell className="font-mono text-sm">{order.externalId || "-"}</TableCell>
+                      <TableCell className="font-mono text-sm">
+                        <Link href={`/order-detail/${order.id}`} className="text-primary hover:underline cursor-pointer">
+                          {order.externalId || `#${order.id}`}
+                        </Link>
+                      </TableCell>
                       <TableCell className="text-sm">
                         {order.orderDate ? new Date(order.orderDate).toLocaleDateString("zh-TW") : "-"}
                       </TableCell>

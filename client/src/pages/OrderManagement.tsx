@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2 } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, Eye } from "lucide-react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
@@ -20,7 +21,20 @@ const SEARCH_FIELDS = [
   { value: "recipientName", label: "收件人姓名" },
   { value: "recipientPhone", label: "收件人手機" },
   { value: "recipientEmail", label: "收件人信箱" },
+  { value: "deliveryNumber", label: "配送編號" },
 ] as const;
+
+const LOGISTICS_STATUS_OPTIONS = [
+  "成功取件",
+  "門市退件",
+  "門市配達",
+  "門市開退",
+  "訂單上傳成功",
+  "退貨成功",
+  "預計退貨",
+  "驗收成功",
+  "驗收異常",
+];
 
 type SearchFieldType = typeof SEARCH_FIELDS[number]["value"];
 
@@ -38,6 +52,7 @@ export default function OrderManagement() {
   const [shippingAddress, setShippingAddress] = useState("");
   const [shippedFrom, setShippedFrom] = useState("");
   const [shippedTo, setShippedTo] = useState("");
+  const [logisticsStatus, setLogisticsStatus] = useState("");
 
   const [page, setPage] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
@@ -77,8 +92,9 @@ export default function OrderManagement() {
     if (shippingAddress.trim()) filters.shippingAddress = shippingAddress.trim();
     if (shippedFrom) filters.shippedFrom = new Date(shippedFrom);
     if (shippedTo) filters.shippedTo = new Date(shippedTo + "T23:59:59");
+    if (logisticsStatus) filters.logisticsStatus = logisticsStatus;
     return filters;
-  }, [page, searchField, searchValue, orderSource, paymentMethod, shippingMethod, shippingAddress, shippedFrom, shippedTo]);
+  }, [page, searchField, searchValue, orderSource, paymentMethod, shippingMethod, shippingAddress, shippedFrom, shippedTo, logisticsStatus]);
 
   const queryFilters = useMemo(() => buildFilters(), [buildFilters]);
 
@@ -92,6 +108,7 @@ export default function OrderManagement() {
     setShippingAddress("");
     setShippedFrom("");
     setShippedTo("");
+    setLogisticsStatus("");
     setPage(0);
   };
 
@@ -180,7 +197,7 @@ export default function OrderManagement() {
   };
 
   const activeFilterCount = [
-    orderSource, paymentMethod, shippingMethod, shippingAddress.trim(), shippedFrom, shippedTo,
+    orderSource, paymentMethod, shippingMethod, shippingAddress.trim(), shippedFrom, shippedTo, logisticsStatus,
   ].filter(Boolean).length;
 
   return (
@@ -327,6 +344,16 @@ export default function OrderManagement() {
                   <Input type="date" value={shippedTo} onChange={e => { setShippedTo(e.target.value); setPage(0); }} className="text-sm" />
                 </div>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">物流狀態</label>
+                <Select value={logisticsStatus} onValueChange={v => { setLogisticsStatus(v === "_clear" ? "" : v); setPage(0); }}>
+                  <SelectTrigger><SelectValue placeholder="選擇物流狀態" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_clear">全部</SelectItem>
+                    {LOGISTICS_STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -361,6 +388,7 @@ export default function OrderManagement() {
                   <TableHead className="min-w-[110px]">出貨單號碼</TableHead>
                   <TableHead className="min-w-[100px]">配送編號</TableHead>
                   <TableHead className="min-w-[80px]">物流狀態</TableHead>
+                  <TableHead className="min-w-[60px]">詳情</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -402,6 +430,13 @@ export default function OrderManagement() {
                         <TableCell className="text-sm font-mono">{(o as any).shipmentNumber || "-"}</TableCell>
                         <TableCell className="text-sm font-mono">{(o as any).deliveryNumber || "-"}</TableCell>
                         <TableCell className="text-sm">{(o as any).logisticsStatus || "-"}</TableCell>
+                        <TableCell>
+                          <Link href={`/order-detail/${o.id}`}>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          </Link>
+                        </TableCell>
                       </TableRow>
                     );
                   })
