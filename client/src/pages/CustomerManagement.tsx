@@ -541,16 +541,17 @@ export default function CustomerManagement() {
                   <TableHead className="min-w-[100px]">最後購買</TableHead>
                   <TableHead className="min-w-[100px]">最後出貨</TableHead>
                   <TableHead className="min-w-[80px]">標籤</TableHead>
+                  <TableHead className="min-w-[60px]">黑名單</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
+                    <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
                   </TableRow>
                 ) : !data?.items?.length ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">無符合條件的客戶資料</TableCell>
+                    <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">無符合條件的客戶資料</TableCell>
                   </TableRow>
                 ) : (
                   data.items.map((c) => (
@@ -582,6 +583,11 @@ export default function CustomerManagement() {
                       <TableCell className="text-sm">{c.lastPurchaseDate ? new Date(c.lastPurchaseDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
                       <TableCell className="text-sm">{c.lastShipmentAt ? new Date(c.lastShipmentAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
                       <TableCell className="text-sm max-w-[120px] truncate" title={c.tags || ""}>{c.tags || "-"}</TableCell>
+                      <TableCell className="text-sm">
+                        <span className={c.blacklisted === "是" ? "text-red-600 font-medium" : ""}>
+                          {c.blacklisted || "否"}
+                        </span>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

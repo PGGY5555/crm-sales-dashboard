@@ -1027,6 +1027,36 @@ export async function getCustomerDetail(customerId: number) {
   };
 }
 
+/** Update customer fields */
+export async function updateCustomer(customerId: number, data: {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  birthday?: string | null;
+  tags?: string | null;
+  memberLevel?: string | null;
+  credits?: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  recipientEmail?: string | null;
+  notes?: string | null;
+  note1?: string | null;
+  note2?: string | null;
+  custom1?: string | null;
+  custom2?: string | null;
+  custom3?: string | null;
+  blacklisted?: string | null;
+  lineUid?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+
+  await db.update(customers).set(data).where(eq(customers.id, customerId));
+
+  const [updated] = await db.select().from(customers).where(eq(customers.id, customerId));
+  return updated || null;
+}
+
 /** Get order detail by ID */
 export async function getOrderDetail(orderId: number) {
   const db = await getDb();

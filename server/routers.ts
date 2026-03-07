@@ -26,6 +26,7 @@ import {
   batchDeleteOrders,
   getCustomerDetail,
   getOrderDetail,
+  updateCustomer,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
@@ -246,6 +247,40 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const result = await getCustomerDetail(input.id);
+        if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "找不到該客戶" });
+        return result;
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().nullable().optional(),
+        email: z.string().nullable().optional(),
+        phone: z.string().nullable().optional(),
+        birthday: z.string().nullable().optional(),
+        tags: z.string().nullable().optional(),
+        memberLevel: z.string().nullable().optional(),
+        credits: z.string().nullable().optional(),
+        recipientName: z.string().nullable().optional(),
+        recipientPhone: z.string().nullable().optional(),
+        recipientEmail: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+        note1: z.string().nullable().optional(),
+        note2: z.string().nullable().optional(),
+        custom1: z.string().nullable().optional(),
+        custom2: z.string().nullable().optional(),
+        custom3: z.string().nullable().optional(),
+        blacklisted: z.string().nullable().optional(),
+        lineUid: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        // Filter out undefined fields
+        const updateData: Record<string, any> = {};
+        for (const [key, value] of Object.entries(data)) {
+          if (value !== undefined) updateData[key] = value;
+        }
+        const result = await updateCustomer(id, updateData);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "找不到該客戶" });
         return result;
       }),

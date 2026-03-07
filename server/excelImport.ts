@@ -34,6 +34,11 @@ interface CustomerRow {
   "統一編號"?: string;
   "公司"?: string;
   "註冊時間"?: string;
+  "備註1"?: string;
+  "備註2"?: string;
+  "自訂1"?: string;
+  "自訂2"?: string;
+  "自訂3"?: string;
 }
 
 interface OrderRow {
@@ -182,6 +187,11 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
       const notes = row["顧客備註"]?.trim() || null;
       const blacklisted = row["黑名單"]?.trim() || "否";
       const lineUid = row["LINE UID"]?.trim() || null;
+      const note1 = row["備註1"]?.trim() || null;
+      const note2 = row["備註2"]?.trim() || null;
+      const custom1 = row["自訂1"]?.trim() || null;
+      const custom2 = row["自訂2"]?.trim() || null;
+      const custom3 = row["自訂3"]?.trim() || null;
 
       // Parse registration date from Excel
       let registeredAt: Date | null = null;
@@ -209,6 +219,11 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
         notes,
         blacklisted,
         lineUid,
+        note1,
+        note2,
+        custom1,
+        custom2,
+        custom3,
         rawData: row,
       }).onDuplicateKeyUpdate({
         set: {
@@ -225,6 +240,11 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
           notes,
           blacklisted,
           lineUid,
+          note1,
+          note2,
+          custom1,
+          custom2,
+          custom3,
           rawData: row,
         },
       });

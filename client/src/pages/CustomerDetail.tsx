@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -5,7 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Mail, Phone, Calendar, Tag, CreditCard, ShoppingCart, Package, User, MessageSquare, Shield, Hash } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, Mail, Phone, Calendar, Tag, CreditCard, ShoppingCart, Package, User, MessageSquare, Shield, Hash, Pencil, Save, X } from "lucide-react";
+import { toast } from "sonner";
 
 export default function CustomerDetail() {
   const [matched1, params1] = useRoute("/customer/:id");
@@ -13,10 +17,106 @@ export default function CustomerDetail() {
   const params = matched1 ? params1 : params2;
   const customerId = Number(params?.id);
 
+  const utils = trpc.useUtils();
   const { data, isLoading, error } = trpc.customerMgmt.detail.useQuery(
     { id: customerId },
     { enabled: !!customerId && !isNaN(customerId) }
   );
+
+  const updateMutation = trpc.customerMgmt.update.useMutation({
+    onSuccess: () => {
+      toast.success("客戶資料已更新");
+      utils.customerMgmt.detail.invalidate({ id: customerId });
+      setEditing(false);
+    },
+    onError: (err) => {
+      toast.error("更新失敗：" + err.message);
+    },
+  });
+
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (data?.customer) {
+      const c = data.customer;
+      setForm({
+        name: c.name || "",
+        email: c.email || "",
+        phone: c.phone || "",
+        birthday: c.birthday || "",
+        tags: c.tags || "",
+        memberLevel: c.memberLevel || "",
+        credits: String(c.credits || "0"),
+        recipientName: c.recipientName || "",
+        recipientPhone: c.recipientPhone || "",
+        recipientEmail: c.recipientEmail || "",
+        notes: c.notes || "",
+        note1: c.note1 || "",
+        note2: c.note2 || "",
+        custom1: c.custom1 || "",
+        custom2: c.custom2 || "",
+        custom3: c.custom3 || "",
+        blacklisted: c.blacklisted || "否",
+        lineUid: c.lineUid || "",
+      });
+    }
+  }, [data?.customer]);
+
+  const handleSave = () => {
+    updateMutation.mutate({
+      id: customerId,
+      name: form.name || null,
+      email: form.email || null,
+      phone: form.phone || null,
+      birthday: form.birthday || null,
+      tags: form.tags || null,
+      memberLevel: form.memberLevel || null,
+      credits: form.credits || "0",
+      recipientName: form.recipientName || null,
+      recipientPhone: form.recipientPhone || null,
+      recipientEmail: form.recipientEmail || null,
+      notes: form.notes || null,
+      note1: form.note1 || null,
+      note2: form.note2 || null,
+      custom1: form.custom1 || null,
+      custom2: form.custom2 || null,
+      custom3: form.custom3 || null,
+      blacklisted: form.blacklisted || "否",
+      lineUid: form.lineUid || null,
+    });
+  };
+
+  const handleCancel = () => {
+    if (data?.customer) {
+      const c = data.customer;
+      setForm({
+        name: c.name || "",
+        email: c.email || "",
+        phone: c.phone || "",
+        birthday: c.birthday || "",
+        tags: c.tags || "",
+        memberLevel: c.memberLevel || "",
+        credits: String(c.credits || "0"),
+        recipientName: c.recipientName || "",
+        recipientPhone: c.recipientPhone || "",
+        recipientEmail: c.recipientEmail || "",
+        notes: c.notes || "",
+        note1: c.note1 || "",
+        note2: c.note2 || "",
+        custom1: c.custom1 || "",
+        custom2: c.custom2 || "",
+        custom3: c.custom3 || "",
+        blacklisted: c.blacklisted || "否",
+        lineUid: c.lineUid || "",
+      });
+    }
+    setEditing(false);
+  };
+
+  const updateField = (key: string, value: string) => {
+    setForm(prev => ({ ...prev, [key]: value }));
+  };
 
   if (isLoading) {
     return (
@@ -67,13 +167,70 @@ export default function CustomerDetail() {
     return labels[lc] || lc;
   };
 
+  // Editable field helper
+  const EditableField = ({ label, icon: Icon, fieldKey, type = "text" }: { label: string; icon: any; fieldKey: string; type?: string }) => (
+    <div className="flex items-center gap-2 text-sm">
+      <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
+      {editing ? (
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground">{label}</label>
+          <Input
+            value={form[fieldKey] || ""}
+            onChange={e => updateField(fieldKey, e.target.value)}
+            className="h-8 text-sm mt-0.5"
+            placeholder={label}
+          />
+        </div>
+      ) : (
+        <span>{label}：{form[fieldKey] || "-"}</span>
+      )}
+    </div>
+  );
+
+  // Editable textarea helper
+  const EditableTextarea = ({ label, icon: Icon, fieldKey }: { label: string; icon: any; fieldKey: string }) => (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+        <Icon className="w-4 h-4" /> {label}
+      </h4>
+      {editing ? (
+        <Textarea
+          value={form[fieldKey] || ""}
+          onChange={e => updateField(fieldKey, e.target.value)}
+          className="text-sm min-h-[60px]"
+          placeholder={`輸入${label}...`}
+        />
+      ) : (
+        <p className="text-sm bg-muted/50 rounded-md p-3 whitespace-pre-wrap">{form[fieldKey] || "-"}</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link href="/customer-management">
-          <Button variant="ghost" size="sm"><ArrowLeft className="w-4 h-4 mr-2" />返回客戶列表</Button>
-        </Link>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/customer-management">
+            <Button variant="ghost" size="sm"><ArrowLeft className="w-4 h-4 mr-2" />返回客戶列表</Button>
+          </Link>
+        </div>
+        <div className="flex gap-2">
+          {editing ? (
+            <>
+              <Button variant="outline" size="sm" onClick={handleCancel} disabled={updateMutation.isPending}>
+                <X className="w-4 h-4 mr-1" />取消
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending}>
+                <Save className="w-4 h-4 mr-1" />{updateMutation.isPending ? "儲存中..." : "儲存"}
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+              <Pencil className="w-4 h-4 mr-1" />編輯
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Customer Info Cards */}
@@ -87,13 +244,42 @@ export default function CustomerDetail() {
                   <User className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <CardTitle className="text-xl">{c.name || "未命名客戶"}</CardTitle>
+                  {editing ? (
+                    <Input
+                      value={form.name || ""}
+                      onChange={e => updateField("name", e.target.value)}
+                      className="text-xl font-semibold h-9"
+                      placeholder="顧客姓名"
+                    />
+                  ) : (
+                    <CardTitle className="text-xl">{c.name || "未命名客戶"}</CardTitle>
+                  )}
                   <CardDescription className="flex items-center gap-2 mt-1">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${lifecycleBadgeColor(c.lifecycle || "O")}`}>
                       {c.lifecycle || "O"} {lifecycleLabel(c.lifecycle || "O")}
                     </span>
-                    {c.memberLevel && <Badge variant="outline">{c.memberLevel}</Badge>}
-                    {c.blacklisted === "是" && <Badge variant="destructive">黑名單</Badge>}
+                    {editing ? (
+                      <Input
+                        value={form.memberLevel || ""}
+                        onChange={e => updateField("memberLevel", e.target.value)}
+                        className="h-6 text-xs w-24"
+                        placeholder="會員等級"
+                      />
+                    ) : (
+                      c.memberLevel && <Badge variant="outline">{c.memberLevel}</Badge>
+                    )}
+                    {editing ? (
+                      <select
+                        value={form.blacklisted || "否"}
+                        onChange={e => updateField("blacklisted", e.target.value)}
+                        className="h-6 text-xs border rounded px-1"
+                      >
+                        <option value="否">非黑名單</option>
+                        <option value="是">黑名單</option>
+                      </select>
+                    ) : (
+                      c.blacklisted === "是" && <Badge variant="destructive">黑名單</Badge>
+                    )}
                   </CardDescription>
                 </div>
               </div>
@@ -104,74 +290,101 @@ export default function CustomerDetail() {
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-muted-foreground">顧客資訊</h4>
                 <div className="space-y-2">
+                  <EditableField label="電子信箱" icon={Mail} fieldKey="email" />
+                  <EditableField label="手機" icon={Phone} fieldKey="phone" />
+                  <EditableField label="生日" icon={Calendar} fieldKey="birthday" />
                   <div className="flex items-center gap-2 text-sm">
-                    <Mail className="w-4 h-4 text-muted-foreground" />
-                    <span>{c.email || "-"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="w-4 h-4 text-muted-foreground" />
-                    <span>{c.phone || "-"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                    <span>生日：{c.birthday || "-"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                    <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
                     <span>註冊：{c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "-"}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Hash className="w-4 h-4 text-muted-foreground" />
-                    <span>LINE UID：{c.lineUid || "-"}</span>
-                  </div>
+                  <EditableField label="LINE UID" icon={Hash} fieldKey="lineUid" />
                 </div>
               </div>
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-muted-foreground">收件人資訊</h4>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <User className="w-4 h-4 text-muted-foreground" />
-                    <span>{c.recipientName || "-"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="w-4 h-4 text-muted-foreground" />
-                    <span>{c.recipientPhone || "-"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail className="w-4 h-4 text-muted-foreground" />
-                    <span>{c.recipientEmail || "-"}</span>
-                  </div>
+                  <EditableField label="收件人姓名" icon={User} fieldKey="recipientName" />
+                  <EditableField label="收件人手機" icon={Phone} fieldKey="recipientPhone" />
+                  <EditableField label="收件人信箱" icon={Mail} fieldKey="recipientEmail" />
                 </div>
               </div>
             </div>
 
-            {c.tags && (
-              <>
-                <Separator />
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                    <Tag className="w-4 h-4" /> 會員標籤
-                  </h4>
-                  <div className="flex flex-wrap gap-1.5">
-                    {c.tags.split(",").map((tag, i) => (
-                      <Badge key={i} variant="secondary" className="text-xs">{tag.trim()}</Badge>
-                    ))}
-                  </div>
+            {/* Tags */}
+            <Separator />
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                <Tag className="w-4 h-4" /> 會員標籤
+              </h4>
+              {editing ? (
+                <Input
+                  value={form.tags || ""}
+                  onChange={e => updateField("tags", e.target.value)}
+                  className="text-sm"
+                  placeholder="多個標籤請用逗號分隔"
+                />
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {c.tags ? c.tags.split(",").map((tag, i) => (
+                    <Badge key={i} variant="secondary" className="text-xs">{tag.trim()}</Badge>
+                  )) : <span className="text-sm text-muted-foreground">-</span>}
                 </div>
-              </>
-            )}
+              )}
+            </div>
 
-            {c.notes && (
-              <>
-                <Separator />
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4" /> 顧客備註
-                  </h4>
-                  <p className="text-sm bg-muted/50 rounded-md p-3">{c.notes}</p>
-                </div>
-              </>
-            )}
+            {/* Notes section */}
+            <Separator />
+            <EditableTextarea label="顧客備註" icon={MessageSquare} fieldKey="notes" />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <EditableTextarea label="備註 1" icon={MessageSquare} fieldKey="note1" />
+              <EditableTextarea label="備註 2" icon={MessageSquare} fieldKey="note2" />
+            </div>
+
+            {/* Custom fields */}
+            <Separator />
+            <h4 className="text-sm font-semibold text-muted-foreground">自訂欄位</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">自訂 1</label>
+                {editing ? (
+                  <Input
+                    value={form.custom1 || ""}
+                    onChange={e => updateField("custom1", e.target.value)}
+                    className="text-sm h-8"
+                    placeholder="自訂 1"
+                  />
+                ) : (
+                  <p className="text-sm bg-muted/50 rounded-md p-2">{form.custom1 || "-"}</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">自訂 2</label>
+                {editing ? (
+                  <Input
+                    value={form.custom2 || ""}
+                    onChange={e => updateField("custom2", e.target.value)}
+                    className="text-sm h-8"
+                    placeholder="自訂 2"
+                  />
+                ) : (
+                  <p className="text-sm bg-muted/50 rounded-md p-2">{form.custom2 || "-"}</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">自訂 3</label>
+                {editing ? (
+                  <Input
+                    value={form.custom3 || ""}
+                    onChange={e => updateField("custom3", e.target.value)}
+                    className="text-sm h-8"
+                    placeholder="自訂 3"
+                  />
+                ) : (
+                  <p className="text-sm bg-muted/50 rounded-md p-2">{form.custom3 || "-"}</p>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -186,7 +399,15 @@ export default function CustomerDetail() {
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   <CreditCard className="w-4 h-4" /> 購物金餘額
                 </span>
-                <span className="font-medium">${parseFloat(String(c.credits || "0")).toLocaleString()}</span>
+                {editing ? (
+                  <Input
+                    value={form.credits || "0"}
+                    onChange={e => updateField("credits", e.target.value)}
+                    className="h-7 text-sm w-24 text-right"
+                  />
+                ) : (
+                  <span className="font-medium">${parseFloat(String(c.credits || "0")).toLocaleString()}</span>
+                )}
               </div>
               <Separator />
               <div className="flex items-center justify-between">

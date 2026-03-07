@@ -50,6 +50,12 @@ export const customers = mysqlTable("customers", {
   notes: text("notes"),
   /** Blacklisted flag: '是' or '否' */
   blacklisted: varchar("blacklisted", { length: 16 }).default("否"),
+  /** Custom notes and fields */
+  note1: text("note1"),
+  note2: text("note2"),
+  custom1: text("custom1"),
+  custom2: text("custom2"),
+  custom3: text("custom3"),
   /** LINE UID */
   lineUid: varchar("lineUid", { length: 255 }),
   rawData: json("rawData"),
