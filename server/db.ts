@@ -817,6 +817,9 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
       rawData: orders.rawData,
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
+      shipmentNumber: orders.shipmentNumber,
+      deliveryNumber: orders.deliveryNumber,
+      logisticsStatus: orders.logisticsStatus,
       customerLineUid: customers.lineUid,
       customerBlacklisted: customers.blacklisted,
     })

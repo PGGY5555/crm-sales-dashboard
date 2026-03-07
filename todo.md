@@ -60,3 +60,8 @@
 - [x] 新增：客戶詳情頁路由與導航
 - [x] 修改：訂單資料管理匯出 Excel 加入客戶的「LINE UID」和「黑名單」欄位
 - [x] 修復：訂單匯出中 LINE UID 欄位沒有資料（修復 JOIN 邏輯 + 回填 customerId）
+- [x] 新增：orders 表新增欄位（出貨單號碼 shipmentNumber、配送編號 deliveryNumber、物流狀態 logisticsStatus）
+- [x] 修改：訂單 Excel 匯入讀取「出貨單號碼」欄位
+- [x] 新增：物流檔 Excel 匯入功能（PayNow物流單號比對出貨單號碼，寫入配送編號和物流狀態）
+- [x] 修改：數據同步頁面新增物流檔匯入卡片
+- [x] 修改：訂單資料管理頁面顯示和匯出新增欄位（出貨單號碼、配送編號、物流狀態）

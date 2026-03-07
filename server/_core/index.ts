@@ -8,7 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
-import { importCustomersFromExcel, importOrdersFromExcel, importProductsFromExcel } from "../excelImport";
+import { importCustomersFromExcel, importOrdersFromExcel, importProductsFromExcel, importLogisticsExcel } from "../excelImport";
 import { sdk } from "./sdk";
 import { COOKIE_NAME } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
@@ -76,8 +76,8 @@ async function startServer() {
         return;
       }
       const fileType = req.body?.type as string;
-      if (!fileType || !["customers", "orders", "products"].includes(fileType)) {
-        res.status(400).json({ error: "請指定檔案類型 (customers, orders, products)" });
+      if (!fileType || !["customers", "orders", "products", "logistics"].includes(fileType)) {
+        res.status(400).json({ error: "請指定檔案類型 (customers, orders, products, logistics)" });
         return;
       }
       let result;
@@ -90,6 +90,9 @@ async function startServer() {
           break;
         case "products":
           result = await importProductsFromExcel(req.file.buffer);
+          break;
+        case "logistics":
+          result = await importLogisticsExcel(req.file.buffer);
           break;
       }
       res.json(result);

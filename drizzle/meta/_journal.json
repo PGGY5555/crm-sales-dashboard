@@ -43,6 +43,13 @@
       "when": 1772889777464,
       "tag": "0005_sad_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1772893161526,
+      "tag": "0006_amazing_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

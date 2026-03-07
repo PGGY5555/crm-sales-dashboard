@@ -152,6 +152,9 @@ export default function OrderManagement() {
       "訂單金額": o.total || "0",
       "出貨日期": o.shippedAt ? new Date(o.shippedAt).toLocaleDateString("zh-TW") : "",
       "出貨狀態": o.shippedAt ? "已出貨" : "未出貨",
+      "出貨單號碼": (o as any).shipmentNumber || "",
+      "配送編號": (o as any).deliveryNumber || "",
+      "物流狀態": (o as any).logisticsStatus || "",
       "LINE UID": (o as any).customerLineUid || "",
       "黑名單": (o as any).customerBlacklisted || "",
     }));
@@ -355,6 +358,9 @@ export default function OrderManagement() {
                   <TableHead className="min-w-[100px] text-right">訂單金額</TableHead>
                   <TableHead className="min-w-[70px]">訂單狀態</TableHead>
                   <TableHead className="min-w-[90px]">出貨日期</TableHead>
+                  <TableHead className="min-w-[110px]">出貨單號碼</TableHead>
+                  <TableHead className="min-w-[100px]">配送編號</TableHead>
+                  <TableHead className="min-w-[80px]">物流狀態</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -393,6 +399,9 @@ export default function OrderManagement() {
                           <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${st.cls}`}>{st.text}</span>
                         </TableCell>
                         <TableCell className="text-sm">{o.shippedAt ? new Date(o.shippedAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
+                        <TableCell className="text-sm font-mono">{(o as any).shipmentNumber || "-"}</TableCell>
+                        <TableCell className="text-sm font-mono">{(o as any).deliveryNumber || "-"}</TableCell>
+                        <TableCell className="text-sm">{(o as any).logisticsStatus || "-"}</TableCell>
                       </TableRow>
                     );
                   })

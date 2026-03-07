@@ -67,6 +67,7 @@ interface OrderRow {
   "出貨單日期"?: string;
   "訂單來源"?: string;
   "收貨地址"?: string;
+  "出貨單號碼"?: string;
 }
 
 interface ProductRow {
@@ -306,6 +307,7 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
       const paymentMethod = firstRow["付款方式"]?.trim() || null;
       const shippingMethod = firstRow["配送方式"]?.trim() || null;
       const shippingAddress = firstRow["收貨地址"] ? String(firstRow["收貨地址"]).trim() : null;
+      const shipmentNumber = firstRow["出貨單號碼"] ? String(firstRow["出貨單號碼"]).trim() : null;
 
       // Upsert order
       await db.insert(orders).values({
@@ -330,6 +332,7 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
         paymentMethod,
         shippingMethod,
         shippingAddress,
+        shipmentNumber,
         rawData: firstRow,
       }).onDuplicateKeyUpdate({
         set: {
@@ -346,6 +349,7 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
           paymentMethod,
           shippingMethod,
           shippingAddress,
+          shipmentNumber,
           rawData: firstRow,
         },
       });
@@ -565,4 +569,70 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
       })
       .where(eq(customers.id, cust.id));
   }
+}
+
+// ===== Logistics Excel Import =====
+
+interface LogisticsRow {
+  "PayNow物流單號"?: string;
+  "配送編號"?: string;
+  "物流狀態"?: string;
+}
+
+/**
+ * Import logistics Excel file.
+ * Matches "PayNow物流單號" to orders.shipmentNumber,
+ * then writes "配送編號" → deliveryNumber and "物流狀態" → logisticsStatus.
+ */
+export async function importLogisticsExcel(buffer: Buffer) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new Error("Excel 檔案中沒有工作表");
+
+  const rows = XLSX.utils.sheet_to_json<LogisticsRow>(workbook.Sheets[sheetName]);
+  if (rows.length === 0) throw new Error("Excel 檔案中沒有資料");
+
+  let matched = 0;
+  let unmatched = 0;
+
+  for (const row of rows) {
+    const payNowNumber = row["PayNow物流單號"] ? String(row["PayNow物流單號"]).trim() : null;
+    const deliveryNumber = row["配送編號"] ? String(row["配送編號"]).trim() : null;
+    const logisticsStatus = row["物流狀態"] ? String(row["物流狀態"]).trim() : null;
+
+    if (!payNowNumber) {
+      unmatched++;
+      continue;
+    }
+
+    // Match by shipmentNumber (出貨單號碼) = PayNow物流單號
+    const result = await db.update(orders)
+      .set({
+        deliveryNumber,
+        logisticsStatus,
+      })
+      .where(eq(orders.shipmentNumber, payNowNumber));
+
+    if (result[0] && (result[0] as any).affectedRows > 0) {
+      matched++;
+    } else {
+      unmatched++;
+    }
+  }
+
+  // Log the import
+  await db.insert(syncLogs).values({
+    syncType: "logistics_excel",
+    status: "success",
+    recordsProcessed: matched,
+  });
+
+  return {
+    total: rows.length,
+    matched,
+    unmatched,
+  };
 }

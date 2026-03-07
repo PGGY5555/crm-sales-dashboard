@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef } from "react";
 import {
   RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Shield, Key, Save,
-  Upload, FileSpreadsheet, Users, ShoppingCart, Package, Trash2
+  Upload, FileSpreadsheet, Users, ShoppingCart, Package, Trash2, Truck
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 
-type ExcelFileType = "customers" | "orders" | "products";
+type ExcelFileType = "customers" | "orders" | "products" | "logistics";
 
 interface UploadState {
   file: File | null;
@@ -43,10 +43,12 @@ export default function Sync() {
   const [customerUpload, setCustomerUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
   const [orderUpload, setOrderUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
   const [productUpload, setProductUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
+  const [logisticsUpload, setLogisticsUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
 
   const customerFileRef = useRef<HTMLInputElement>(null);
   const orderFileRef = useRef<HTMLInputElement>(null);
   const productFileRef = useRef<HTMLInputElement>(null);
+  const logisticsFileRef = useRef<HTMLInputElement>(null);
 
   const { data: credentials, isLoading: credsLoading, refetch: refetchCreds } =
     trpc.settings.getCredentials.useQuery(undefined, { enabled: isAdmin });
@@ -154,6 +156,7 @@ export default function Sync() {
       customers: { state: customerUpload, setState: setCustomerUpload },
       orders: { state: orderUpload, setState: setOrderUpload },
       products: { state: productUpload, setState: setProductUpload },
+      logistics: { state: logisticsUpload, setState: setLogisticsUpload },
     };
     const { state, setState } = stateMap[fileType];
 
@@ -182,10 +185,14 @@ export default function Sync() {
 
       setState({ ...state, uploading: false, result });
 
-      if (result.success) {
-        const typeLabel = { customers: "顧客", orders: "訂單", products: "商品" }[fileType];
-        const count = result.processed ?? result.ordersProcessed ?? 0;
-        toast.success(`${typeLabel}資料匯入成功！處理 ${count} 筆記錄`);
+      if (result.success || result.matched !== undefined) {
+        if (fileType === "logistics") {
+          toast.success(`物流資料匯入完成！匹配 ${result.matched ?? 0} 筆，未匹配 ${result.unmatched ?? 0} 筆`);
+        } else {
+          const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
+          const count = result.processed ?? result.ordersProcessed ?? 0;
+          toast.success(`${typeLabel}資料匯入成功！處理 ${count} 筆記錄`);
+        }
         refetchStatus();
       } else {
         toast.error(`匯入失敗: ${result.error}`);
@@ -201,6 +208,7 @@ export default function Sync() {
       customers: setCustomerUpload,
       orders: setOrderUpload,
       products: setProductUpload,
+      logistics: setLogisticsUpload,
     };
     stateMap[fileType]({ file, uploading: false, result: null });
   };
@@ -403,6 +411,14 @@ export default function Sync() {
               productUpload,
               productFileRef,
             )}
+            {renderUploadCard(
+              "logistics",
+              <Truck className="h-5 w-5 text-orange-600" />,
+              "訂單物流檔",
+              "匯入物流資料（用 PayNow物流單號比對出貨單號碼，寫入配送編號和物流狀態）",
+              logisticsUpload,
+              logisticsFileRef,
+            )}
           </div>
 
           {/* Clear Data Card */}
@@ -510,7 +526,8 @@ export default function Sync() {
               <div className="prose prose-sm max-w-none text-muted-foreground">
                 <ul className="space-y-1.5 list-disc pl-4">
                   <li>請使用 Shopnex 後台匯出的 Excel 檔案格式</li>
-                  <li><strong className="text-foreground">建議匯入順序</strong>：先匯入顧客列表，再匯入訂單列表，最後匯入商品列表</li>
+                  <li><strong className="text-foreground">建議匯入順序</strong>：先匯入顧客列表，再匯入訂單列表，然後匯入商品列表，最後匯入訂單物流檔</li>
+                  <li><strong className="text-foreground">訂單物流檔</strong>：系統會用「PayNow物流單號」比對訂單的「出貨單號碼」，匹配成功後寫入「配送編號」和「物流狀態」</li>
                   <li>匯入訂單時，系統會自動根據會員信箱關聯對應的顧客，並更新客戶統計數據（總消費、訂單數、生命週期分類等）</li>
                   <li>重複匯入同一份檔案不會產生重複資料（系統會根據唯一識別碼自動更新）</li>
                   <li>支援 <strong className="text-foreground">.xlsx</strong>、<strong className="text-foreground">.xls</strong>、<strong className="text-foreground">.csv</strong> 格式</li>

@@ -92,6 +92,12 @@ export const orders = mysqlTable("orders", {
   paymentMethod: varchar("paymentMethod", { length: 128 }),
   shippingMethod: varchar("shippingMethod", { length: 128 }),
   shippingAddress: text("shippingAddress"),
+  /** 出貨單號碼 (from order Excel) */
+  shipmentNumber: varchar("shipmentNumber", { length: 128 }),
+  /** 配送編號 (from logistics Excel) */
+  deliveryNumber: varchar("deliveryNumber", { length: 128 }),
+  /** 物流狀態 (from logistics Excel) */
+  logisticsStatus: varchar("logisticsStatus", { length: 128 }),
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
