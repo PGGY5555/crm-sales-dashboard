@@ -129,6 +129,42 @@ describe("dashboard routes require auth", () => {
   });
 });
 
+describe("settings routes require admin", () => {
+  it("settings.getCredentials throws FORBIDDEN for non-admin user", async () => {
+    const { ctx } = createAuthContext(); // role = "user"
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.settings.getCredentials()).rejects.toThrow(/\u50c5\u7ba1\u7406\u54e1/);
+  });
+
+  it("settings.saveCredentials throws FORBIDDEN for non-admin user", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.settings.saveCredentials({ apiToken: "test", appName: "test" })
+    ).rejects.toThrow(/\u50c5\u7ba1\u7406\u54e1/);
+  });
+
+  it("settings.getCredentials throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.settings.getCredentials()).rejects.toThrow();
+  });
+});
+
+describe("sync routes require admin", () => {
+  it("sync.trigger throws FORBIDDEN for non-admin user", async () => {
+    const { ctx } = createAuthContext(); // role = "user"
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.sync.trigger()).rejects.toThrow(/\u50c5\u7ba1\u7406\u54e1/);
+  });
+
+  it("sync.trigger throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.sync.trigger()).rejects.toThrow();
+  });
+});
+
 describe("router structure", () => {
   it("has all expected route namespaces", () => {
     const caller = appRouter.createCaller(createUnauthContext());
@@ -137,5 +173,6 @@ describe("router structure", () => {
     expect(caller.sync).toBeDefined();
     expect(caller.ai).toBeDefined();
     expect(caller.system).toBeDefined();
+    expect(caller.settings).toBeDefined();
   });
 });

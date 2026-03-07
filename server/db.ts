@@ -1,6 +1,7 @@
 import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, customers, orders, syncLogs } from "../drizzle/schema";
+import { InsertUser, users, customers, orders, syncLogs, settings } from "../drizzle/schema";
+import { encrypt, decrypt, maskToken } from "./crypto";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -440,6 +441,73 @@ export async function getLastSyncLog() {
     .limit(1);
 
   return result.length > 0 ? result[0] : null;
+}
+
+// ===== Settings (Encrypted API Credentials) =====
+
+/** Save an encrypted setting */
+export async function saveSetting(key: string, plainValue: string, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const { encrypted, iv } = encrypt(plainValue);
+
+  await db.insert(settings).values({
+    key,
+    value: encrypted,
+    iv,
+    updatedBy: userId,
+  }).onDuplicateKeyUpdate({
+    set: {
+      value: encrypted,
+      iv,
+      updatedBy: userId,
+    },
+  });
+}
+
+/** Get a decrypted setting value */
+export async function getSettingValue(key: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
+  if (result.length === 0) return null;
+
+  try {
+    return decrypt(result[0].value, result[0].iv);
+  } catch {
+    console.error(`[Settings] Failed to decrypt key: ${key}`);
+    return null;
+  }
+}
+
+/** Get a masked setting value for display */
+export async function getMaskedSetting(key: string): Promise<{ exists: boolean; masked: string | null; updatedAt: Date | null }> {
+  const db = await getDb();
+  if (!db) return { exists: false, masked: null, updatedAt: null };
+
+  const result = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
+  if (result.length === 0) return { exists: false, masked: null, updatedAt: null };
+
+  try {
+    const plainValue = decrypt(result[0].value, result[0].iv);
+    return {
+      exists: true,
+      masked: maskToken(plainValue),
+      updatedAt: result[0].updatedAt,
+    };
+  } catch {
+    return { exists: true, masked: "****", updatedAt: result[0].updatedAt };
+  }
+}
+
+/** Get stored CRM credentials */
+export async function getCrmCredentials(): Promise<{ apiToken: string; appName: string } | null> {
+  const apiToken = await getSettingValue("shopnex_api_token");
+  const appName = await getSettingValue("shopnex_app_name");
+  if (!apiToken || !appName) return null;
+  return { apiToken, appName };
 }
 
 /** Get summary data for LLM context */

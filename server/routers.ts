@@ -12,7 +12,11 @@ import {
   getCustomerList,
   getLastSyncLog,
   getLLMContextData,
+  saveSetting,
+  getMaskedSetting,
+  getCrmCredentials,
 } from "./db";
+import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
 import { invokeLLM } from "./_core/llm";
 
@@ -94,15 +98,49 @@ export const appRouter = router({
     }),
   }),
 
+  /** Admin-only settings for API credentials */
+  settings: router({
+    /** Get masked credential status (admin only) */
+    getCredentials: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+      }
+      const [apiToken, appName] = await Promise.all([
+        getMaskedSetting("shopnex_api_token"),
+        getMaskedSetting("shopnex_app_name"),
+      ]);
+      return { apiToken, appName };
+    }),
+
+    /** Save API credentials (admin only) */
+    saveCredentials: protectedProcedure
+      .input(z.object({
+        apiToken: z.string().min(1, "API Token 不可為空"),
+        appName: z.string().min(1, "App Name 不可為空"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+        }
+        await saveSetting("shopnex_api_token", input.apiToken, ctx.user.id);
+        await saveSetting("shopnex_app_name", input.appName, ctx.user.id);
+        return { success: true };
+      }),
+  }),
+
   /** Sync data from Shopnex CRM */
   sync: router({
+    /** Trigger sync using stored credentials (admin only) */
     trigger: protectedProcedure
-      .input(z.object({
-        apiToken: z.string(),
-        appName: z.string(),
-      }))
-      .mutation(async ({ input }) => {
-        return syncFromShopnex(input.apiToken, input.appName);
+      .mutation(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可執行同步" });
+        }
+        const creds = await getCrmCredentials();
+        if (!creds) {
+          return { success: false, error: "尚未設定 API 憑證，請先在設定頁面儲存 API Token 和 App Name" };
+        }
+        return syncFromShopnex(creds.apiToken, creds.appName);
       }),
   }),
 
