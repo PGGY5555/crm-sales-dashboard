@@ -1,0 +1,16 @@
+{
+  "query": "SELECT \n  COUNT(*) as total_orders,\n  SUM(CASE WHEN shippedAt IS NOT NULL THEN 1 ELSE 0 END) as has_shipped_at,\n  SUM(CASE WHEN shippedAt IS NULL THEN 1 ELSE 0 END) as no_shipped_at,\n  SUM(CASE WHEN isShipped = 1 THEN 1 ELSE 0 END) as is_shipped_true\nFROM orders LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT \n  COUNT(*) as total_orders,\n  SUM(CASE WHEN shippedAt IS NOT NULL THEN 1 ELSE 0 END) as has_shipped_at,\n  SUM(CASE WHEN shippedAt IS NULL THEN 1 ELSE 0 END) as no_shipped_at,\n  SUM(CASE WHEN isShipped = 1 THEN 1 ELSE 0 END) as is_shipped_true\nFROM orders LIMIT 1;",
+  "rows": [
+    {
+      "total_orders": "223",
+      "has_shipped_at": "112",
+      "no_shipped_at": "111",
+      "is_shipped_true": "112"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_orders\thas_shipped_at\tno_shipped_at\tis_shipped_true\n223\t112\t111\t112\n",
+  "stderr": "",
+  "execution_time_ms": 1577
+}
