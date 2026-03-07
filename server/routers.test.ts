@@ -165,6 +165,46 @@ describe("sync routes require admin", () => {
   });
 });
 
+describe("customerMgmt routes require auth", () => {
+  it("customerMgmt.list throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.customerMgmt.list()).rejects.toThrow();
+  });
+
+  it("customerMgmt.export throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.customerMgmt.export()).rejects.toThrow();
+  });
+
+  it("customerMgmt.memberLevels throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.customerMgmt.memberLevels()).rejects.toThrow();
+  });
+});
+
+describe("orderMgmt routes require auth", () => {
+  it("orderMgmt.list throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.orderMgmt.list()).rejects.toThrow();
+  });
+
+  it("orderMgmt.export throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.orderMgmt.export()).rejects.toThrow();
+  });
+
+  it("orderMgmt.filterOptions throws UNAUTHORIZED for unauthenticated user", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.orderMgmt.filterOptions()).rejects.toThrow();
+  });
+});
+
 describe("router structure", () => {
   it("has all expected route namespaces", () => {
     const caller = appRouter.createCaller(createUnauthContext());
@@ -174,5 +214,7 @@ describe("router structure", () => {
     expect(caller.ai).toBeDefined();
     expect(caller.system).toBeDefined();
     expect(caller.settings).toBeDefined();
+    expect(caller.customerMgmt).toBeDefined();
+    expect(caller.orderMgmt).toBeDefined();
   });
 });

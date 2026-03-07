@@ -65,6 +65,8 @@ interface OrderRow {
   "備註"?: string;
   "出貨庫存點"?: string;
   "出貨單日期"?: string;
+  "訂單來源"?: string;
+  "收貨地址"?: string;
 }
 
 interface ProductRow {
@@ -168,19 +170,41 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
       const extId = email || phone || `excel_${processed}_${Date.now()}`;
       if (!name && !email && !phone) continue;
 
+      const birthday = row["生日"]?.trim() || null;
+      const tags = row["會員標籤"]?.trim() || null;
+      const memberLevel = row["會員等級"]?.trim() || null;
+      const credits = String(parseNum(row["購物金餘額"]));
+      const recipientName = row["收貨人"]?.trim() || null;
+      const recipientPhone = row["收貨人手機"]?.trim() || null;
+      const recipientEmail = row["收貨人電子郵件"]?.trim() || null;
+
       await db.insert(customers).values({
         externalId: extId,
         name: name || null,
         email: email || null,
         phone: phone || null,
-        registeredAt: null, // Excel doesn't have registration date
+        registeredAt: null,
         totalOrders: 0,
         totalSpent: "0",
+        birthday,
+        tags,
+        memberLevel,
+        credits,
+        recipientName,
+        recipientPhone,
+        recipientEmail,
         rawData: row,
       }).onDuplicateKeyUpdate({
         set: {
           name: name || null,
           phone: phone || null,
+          birthday,
+          tags,
+          memberLevel,
+          credits,
+          recipientName,
+          recipientPhone,
+          recipientEmail,
           rawData: row,
         },
       });
@@ -265,6 +289,15 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
         }
       }
 
+      // Extract extended fields
+      const recipientName = firstRow["收件人姓名"]?.trim() || null;
+      const recipientPhone = firstRow["收件人手機"]?.trim() || null;
+      const recipientEmail = firstRow["收件人信箱"]?.trim() || null;
+      const orderSource = firstRow["訂單來源"] ? String(firstRow["訂單來源"]).trim() : null;
+      const paymentMethod = firstRow["付款方式"]?.trim() || null;
+      const shippingMethod = firstRow["配送方式"]?.trim() || null;
+      const shippingAddress = firstRow["收貨地址"] ? String(firstRow["收貨地址"]).trim() : null;
+
       // Upsert order
       await db.insert(orders).values({
         externalId: orderNum,
@@ -281,6 +314,13 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
         shippedAt: shippedAtDate,
         archived: false,
         orderDate,
+        recipientName,
+        recipientPhone,
+        recipientEmail,
+        orderSource,
+        paymentMethod,
+        shippingMethod,
+        shippingAddress,
         rawData: firstRow,
       }).onDuplicateKeyUpdate({
         set: {
@@ -290,6 +330,13 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
           shipmentFee: String(shipmentFee),
           isShipped: shipped,
           shippedAt: shippedAtDate,
+          recipientName,
+          recipientPhone,
+          recipientEmail,
+          orderSource,
+          paymentMethod,
+          shippingMethod,
+          shippingAddress,
           rawData: firstRow,
         },
       });
@@ -476,6 +523,19 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
 
     const lifecycle = classifyCustomer(lastShipmentAt, totalOrders, cust.registeredAt);
 
+    // Compute lastPurchaseDate and lastPurchaseAmount
+    let lastPurchaseDate: Date | null = null;
+    let lastPurchaseAmount: number | null = null;
+    if (validOrders.length > 0) {
+      const sortedByDate = [...validOrders]
+        .filter((o: any) => o.orderDate)
+        .sort((a: any, b: any) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
+      if (sortedByDate.length > 0) {
+        lastPurchaseDate = sortedByDate[0].orderDate;
+        lastPurchaseAmount = parseFloat(String(sortedByDate[0].total || "0"));
+      }
+    }
+
     await db.update(customers)
       .set({
         totalOrders,
@@ -483,6 +543,8 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
         lastShipmentAt,
         avgRepurchaseDays,
         lifecycle,
+        lastPurchaseDate,
+        lastPurchaseAmount: lastPurchaseAmount !== null ? String(lastPurchaseAmount.toFixed(2)) : null,
       })
       .where(eq(customers.id, cust.id));
   }

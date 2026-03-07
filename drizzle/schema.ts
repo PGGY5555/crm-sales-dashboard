@@ -35,6 +35,17 @@ export const customers = mysqlTable("customers", {
   lifecycle: mysqlEnum("lifecycle", ["N", "A", "S", "L", "D", "O"]).default("O"),
   /** Average repurchase days */
   avgRepurchaseDays: int("avgRepurchaseDays"),
+  /** Extended fields for management filters */
+  birthday: varchar("birthday", { length: 32 }),
+  tags: text("tags"),
+  memberLevel: varchar("memberLevel", { length: 64 }),
+  credits: decimal("credits", { precision: 12, scale: 2 }).default("0"),
+  lastPurchaseDate: timestamp("lastPurchaseDate"),
+  lastPurchaseAmount: decimal("lastPurchaseAmount", { precision: 12, scale: 2 }),
+  /** Recipient info from most recent order */
+  recipientName: varchar("recipientName", { length: 255 }),
+  recipientPhone: varchar("recipientPhone", { length: 64 }),
+  recipientEmail: varchar("recipientEmail", { length: 320 }),
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -67,6 +78,14 @@ export const orders = mysqlTable("orders", {
   shippedAt: timestamp("shippedAt"),
   archived: boolean("archived").default(false),
   orderDate: timestamp("orderDate"),
+  /** Extended fields for management filters */
+  recipientName: varchar("recipientName", { length: 255 }),
+  recipientPhone: varchar("recipientPhone", { length: 64 }),
+  recipientEmail: varchar("recipientEmail", { length: 320 }),
+  orderSource: varchar("orderSource", { length: 128 }),
+  paymentMethod: varchar("paymentMethod", { length: 128 }),
+  shippingMethod: varchar("shippingMethod", { length: 128 }),
+  shippingAddress: text("shippingAddress"),
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

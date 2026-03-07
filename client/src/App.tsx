@@ -11,6 +11,8 @@ import Funnel from "./pages/Funnel";
 import Customers from "./pages/Customers";
 import AIChat from "./pages/AIChat";
 import Sync from "./pages/Sync";
+import CustomerManagement from "./pages/CustomerManagement";
+import OrderManagement from "./pages/OrderManagement";
 
 function Router() {
   return (
@@ -22,6 +24,8 @@ function Router() {
         <Route path={"/customers"} component={Customers} />
         <Route path={"/ai-chat"} component={AIChat} />
         <Route path={"/sync"} component={Sync} />
+        <Route path={"/customer-management"} component={CustomerManagement} />
+        <Route path={"/order-management"} component={OrderManagement} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

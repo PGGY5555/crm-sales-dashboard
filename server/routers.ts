@@ -16,6 +16,12 @@ import {
   getMaskedSetting,
   getCrmCredentials,
   clearAllData,
+  getCustomerManagement,
+  getCustomerManagementExport,
+  getDistinctMemberLevels,
+  getOrderManagement,
+  getOrderManagementExport,
+  getOrderFilterOptions,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
@@ -155,6 +161,108 @@ export const appRouter = router({
         }
         return clearAllData(input.targets);
       }),
+  }),
+
+  /** Customer management with advanced filters */
+  customerMgmt: router({
+    list: protectedProcedure
+      .input(z.object({
+        searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchValue: z.string().optional(),
+        registeredFrom: z.date().optional(),
+        registeredTo: z.date().optional(),
+        birthdayMonth: z.number().min(1).max(12).optional(),
+        tags: z.string().optional(),
+        memberLevel: z.string().optional(),
+        creditsOp: z.enum(["lt", "gt", "eq"]).optional(),
+        creditsValue: z.number().optional(),
+        totalSpentOp: z.enum(["lt", "gt", "eq"]).optional(),
+        totalSpentValue: z.number().optional(),
+        totalOrdersOp: z.enum(["lt", "gt", "eq"]).optional(),
+        totalOrdersValue: z.number().optional(),
+        lastPurchaseFrom: z.date().optional(),
+        lastPurchaseTo: z.date().optional(),
+        lastPurchaseAmountOp: z.enum(["lt", "gt", "eq"]).optional(),
+        lastPurchaseAmountValue: z.number().optional(),
+        lastShipmentFrom: z.date().optional(),
+        lastShipmentTo: z.date().optional(),
+        lifecycles: z.array(z.string()).optional(),
+        page: z.number().default(0),
+        limit: z.number().default(50),
+      }).optional())
+      .query(async ({ input }) => {
+        return getCustomerManagement(input ?? {});
+      }),
+
+    export: protectedProcedure
+      .input(z.object({
+        searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchValue: z.string().optional(),
+        registeredFrom: z.date().optional(),
+        registeredTo: z.date().optional(),
+        birthdayMonth: z.number().min(1).max(12).optional(),
+        tags: z.string().optional(),
+        memberLevel: z.string().optional(),
+        creditsOp: z.enum(["lt", "gt", "eq"]).optional(),
+        creditsValue: z.number().optional(),
+        totalSpentOp: z.enum(["lt", "gt", "eq"]).optional(),
+        totalSpentValue: z.number().optional(),
+        totalOrdersOp: z.enum(["lt", "gt", "eq"]).optional(),
+        totalOrdersValue: z.number().optional(),
+        lastPurchaseFrom: z.date().optional(),
+        lastPurchaseTo: z.date().optional(),
+        lastPurchaseAmountOp: z.enum(["lt", "gt", "eq"]).optional(),
+        lastPurchaseAmountValue: z.number().optional(),
+        lastShipmentFrom: z.date().optional(),
+        lastShipmentTo: z.date().optional(),
+        lifecycles: z.array(z.string()).optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return getCustomerManagementExport(input ?? {});
+      }),
+
+    memberLevels: protectedProcedure.query(async () => {
+      return getDistinctMemberLevels();
+    }),
+  }),
+
+  /** Order management with advanced filters */
+  orderMgmt: router({
+    list: protectedProcedure
+      .input(z.object({
+        searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchValue: z.string().optional(),
+        orderSource: z.string().optional(),
+        paymentMethod: z.string().optional(),
+        shippingMethod: z.string().optional(),
+        shippingAddress: z.string().optional(),
+        shippedFrom: z.date().optional(),
+        shippedTo: z.date().optional(),
+        page: z.number().default(0),
+        limit: z.number().default(50),
+      }).optional())
+      .query(async ({ input }) => {
+        return getOrderManagement(input ?? {});
+      }),
+
+    export: protectedProcedure
+      .input(z.object({
+        searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchValue: z.string().optional(),
+        orderSource: z.string().optional(),
+        paymentMethod: z.string().optional(),
+        shippingMethod: z.string().optional(),
+        shippingAddress: z.string().optional(),
+        shippedFrom: z.date().optional(),
+        shippedTo: z.date().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return getOrderManagementExport(input ?? {});
+      }),
+
+    filterOptions: protectedProcedure.query(async () => {
+      return getOrderFilterOptions();
+    }),
   }),
 
   /** AI chat for sales insights */

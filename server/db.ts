@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count } from "drizzle-orm";
+import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, customers, orders, syncLogs, settings, orderItems, products } from "../drizzle/schema";
 import { encrypt, decrypt, maskToken } from "./crypto";
@@ -571,5 +571,257 @@ export async function getLLMContextData(filters: DashboardFilters = {}) {
     lifecycle,
     topSalesReps: topReps.slice(0, 5),
     funnel,
+  };
+}
+
+// ===== Customer Management (Advanced Filters) =====
+
+export interface CustomerManagementFilters {
+  // X-axis: text search fields
+  searchField?: "customerName" | "customerPhone" | "customerEmail" | "recipientName" | "recipientPhone" | "recipientEmail";
+  searchValue?: string;
+  // Y-axis: condition filters
+  registeredFrom?: Date;
+  registeredTo?: Date;
+  birthdayMonth?: number; // 1-12
+  tags?: string; // comma-separated
+  memberLevel?: string;
+  creditsOp?: "lt" | "gt" | "eq";
+  creditsValue?: number;
+  totalSpentOp?: "lt" | "gt" | "eq";
+  totalSpentValue?: number;
+  totalOrdersOp?: "lt" | "gt" | "eq";
+  totalOrdersValue?: number;
+  lastPurchaseFrom?: Date;
+  lastPurchaseTo?: Date;
+  lastPurchaseAmountOp?: "lt" | "gt" | "eq";
+  lastPurchaseAmountValue?: number;
+  lastShipmentFrom?: Date;
+  lastShipmentTo?: Date;
+  lifecycles?: string[];
+  // Pagination
+  page?: number;
+  limit?: number;
+}
+
+export async function getCustomerManagement(filters: CustomerManagementFilters = {}) {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+
+  const conditions: any[] = [];
+
+  // X-axis: text search
+  if (filters.searchValue && filters.searchField) {
+    const val = `%${filters.searchValue}%`;
+    switch (filters.searchField) {
+      case "customerName": conditions.push(like(customers.name, val)); break;
+      case "customerPhone": conditions.push(like(customers.phone, val)); break;
+      case "customerEmail": conditions.push(like(customers.email, val)); break;
+      case "recipientName": conditions.push(like(customers.recipientName, val)); break;
+      case "recipientPhone": conditions.push(like(customers.recipientPhone, val)); break;
+      case "recipientEmail": conditions.push(like(customers.recipientEmail, val)); break;
+    }
+  }
+
+  // Y-axis: condition filters
+  if (filters.registeredFrom) conditions.push(gte(customers.registeredAt, filters.registeredFrom));
+  if (filters.registeredTo) conditions.push(lte(customers.registeredAt, filters.registeredTo));
+
+  if (filters.birthdayMonth) {
+    const month = String(filters.birthdayMonth).padStart(2, "0");
+    conditions.push(sql`SUBSTRING(${customers.birthday}, 6, 2) = ${month}`);
+  }
+
+  if (filters.tags) {
+    const tagList = filters.tags.split(",").map(t => t.trim()).filter(Boolean);
+    for (const tag of tagList) {
+      conditions.push(like(customers.tags, `%${tag}%`));
+    }
+  }
+
+  if (filters.memberLevel) {
+    conditions.push(eq(customers.memberLevel, filters.memberLevel));
+  }
+
+  if (filters.creditsOp && filters.creditsValue !== undefined) {
+    const col = customers.credits;
+    switch (filters.creditsOp) {
+      case "lt": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) < ${filters.creditsValue}`); break;
+      case "gt": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) > ${filters.creditsValue}`); break;
+      case "eq": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) = ${filters.creditsValue}`); break;
+    }
+  }
+
+  if (filters.totalSpentOp && filters.totalSpentValue !== undefined) {
+    const col = customers.totalSpent;
+    switch (filters.totalSpentOp) {
+      case "lt": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) < ${filters.totalSpentValue}`); break;
+      case "gt": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) > ${filters.totalSpentValue}`); break;
+      case "eq": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) = ${filters.totalSpentValue}`); break;
+    }
+  }
+
+  if (filters.totalOrdersOp && filters.totalOrdersValue !== undefined) {
+    switch (filters.totalOrdersOp) {
+      case "lt": conditions.push(sql`${customers.totalOrders} < ${filters.totalOrdersValue}`); break;
+      case "gt": conditions.push(sql`${customers.totalOrders} > ${filters.totalOrdersValue}`); break;
+      case "eq": conditions.push(sql`${customers.totalOrders} = ${filters.totalOrdersValue}`); break;
+    }
+  }
+
+  if (filters.lastPurchaseFrom) conditions.push(gte(customers.lastPurchaseDate, filters.lastPurchaseFrom));
+  if (filters.lastPurchaseTo) conditions.push(lte(customers.lastPurchaseDate, filters.lastPurchaseTo));
+
+  if (filters.lastPurchaseAmountOp && filters.lastPurchaseAmountValue !== undefined) {
+    const col = customers.lastPurchaseAmount;
+    switch (filters.lastPurchaseAmountOp) {
+      case "lt": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) < ${filters.lastPurchaseAmountValue}`); break;
+      case "gt": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) > ${filters.lastPurchaseAmountValue}`); break;
+      case "eq": conditions.push(sql`CAST(${col} AS DECIMAL(12,2)) = ${filters.lastPurchaseAmountValue}`); break;
+    }
+  }
+
+  if (filters.lastShipmentFrom) conditions.push(gte(customers.lastShipmentAt, filters.lastShipmentFrom));
+  if (filters.lastShipmentTo) conditions.push(lte(customers.lastShipmentAt, filters.lastShipmentTo));
+
+  if (filters.lifecycles && filters.lifecycles.length > 0) {
+    conditions.push(inArray(customers.lifecycle, filters.lifecycles as any));
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const page = filters.page ?? 0;
+  const limit = filters.limit ?? 50;
+
+  const [countResult] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(customers)
+    .where(where);
+
+  const items = await db
+    .select()
+    .from(customers)
+    .where(where)
+    .orderBy(desc(customers.updatedAt))
+    .limit(limit)
+    .offset(page * limit);
+
+  return {
+    items,
+    total: Number(countResult?.count || 0),
+  };
+}
+
+/** Get all customers matching filters (for export, no pagination) */
+export async function getCustomerManagementExport(filters: CustomerManagementFilters = {}) {
+  const result = await getCustomerManagement({ ...filters, page: 0, limit: 100000 });
+  return result.items;
+}
+
+/** Get distinct member levels for filter dropdown */
+export async function getDistinctMemberLevels(): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db
+    .select({ level: customers.memberLevel })
+    .from(customers)
+    .where(isNotNull(customers.memberLevel))
+    .groupBy(customers.memberLevel);
+  return result.map(r => r.level).filter((l): l is string => !!l);
+}
+
+// ===== Order Management (Advanced Filters) =====
+
+export interface OrderManagementFilters {
+  // X-axis: text search fields
+  searchField?: "orderNumber" | "customerName" | "customerPhone" | "customerEmail" | "recipientName" | "recipientPhone" | "recipientEmail";
+  searchValue?: string;
+  // Y-axis: condition filters
+  orderSource?: string;
+  paymentMethod?: string;
+  shippingMethod?: string;
+  shippingAddress?: string;
+  shippedFrom?: Date;
+  shippedTo?: Date;
+  // Pagination
+  page?: number;
+  limit?: number;
+}
+
+export async function getOrderManagement(filters: OrderManagementFilters = {}) {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+
+  const conditions: any[] = [];
+
+  // X-axis: text search
+  if (filters.searchValue && filters.searchField) {
+    const val = `%${filters.searchValue}%`;
+    switch (filters.searchField) {
+      case "orderNumber": conditions.push(like(orders.externalId, val)); break;
+      case "customerName": conditions.push(like(orders.customerName, val)); break;
+      case "customerPhone": conditions.push(like(orders.customerPhone, val)); break;
+      case "customerEmail": conditions.push(like(orders.customerEmail, val)); break;
+      case "recipientName": conditions.push(like(orders.recipientName, val)); break;
+      case "recipientPhone": conditions.push(like(orders.recipientPhone, val)); break;
+      case "recipientEmail": conditions.push(like(orders.recipientEmail, val)); break;
+    }
+  }
+
+  // Y-axis: condition filters
+  if (filters.orderSource) conditions.push(like(orders.orderSource, `%${filters.orderSource}%`));
+  if (filters.paymentMethod) conditions.push(like(orders.paymentMethod, `%${filters.paymentMethod}%`));
+  if (filters.shippingMethod) conditions.push(like(orders.shippingMethod, `%${filters.shippingMethod}%`));
+  if (filters.shippingAddress) conditions.push(like(orders.shippingAddress, `%${filters.shippingAddress}%`));
+  if (filters.shippedFrom) conditions.push(gte(orders.shippedAt, filters.shippedFrom));
+  if (filters.shippedTo) conditions.push(lte(orders.shippedAt, filters.shippedTo));
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const page = filters.page ?? 0;
+  const limit = filters.limit ?? 50;
+
+  const [countResult] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(orders)
+    .where(where);
+
+  const items = await db
+    .select()
+    .from(orders)
+    .where(where)
+    .orderBy(desc(orders.orderDate))
+    .limit(limit)
+    .offset(page * limit);
+
+  return {
+    items,
+    total: Number(countResult?.count || 0),
+  };
+}
+
+/** Get all orders matching filters (for export, no pagination) */
+export async function getOrderManagementExport(filters: OrderManagementFilters = {}) {
+  const result = await getOrderManagement({ ...filters, page: 0, limit: 100000 });
+  return result.items;
+}
+
+/** Get distinct values for order filter dropdowns */
+export async function getOrderFilterOptions() {
+  const db = await getDb();
+  if (!db) return { sources: [], payments: [], shippings: [] };
+
+  const [sources] = await Promise.all([
+    db.select({ val: orders.orderSource }).from(orders).where(isNotNull(orders.orderSource)).groupBy(orders.orderSource),
+  ]);
+  const [payments] = await Promise.all([
+    db.select({ val: orders.paymentMethod }).from(orders).where(isNotNull(orders.paymentMethod)).groupBy(orders.paymentMethod),
+  ]);
+  const [shippings] = await Promise.all([
+    db.select({ val: orders.shippingMethod }).from(orders).where(isNotNull(orders.shippingMethod)).groupBy(orders.shippingMethod),
+  ]);
+
+  return {
+    sources: sources.map(r => r.val).filter((v): v is string => !!v),
+    payments: payments.map(r => r.val).filter((v): v is string => !!v),
+    shippings: shippings.map(r => r.val).filter((v): v is string => !!v),
   };
 }

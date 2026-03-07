@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw, UserCog, FileText } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -32,6 +32,8 @@ const menuItems = [
   { icon: TrendingUp, label: "銷售趨勢", path: "/trends" },
   { icon: Filter, label: "銷售漏斗", path: "/funnel" },
   { icon: Users, label: "客戶分析", path: "/customers" },
+  { icon: UserCog, label: "客戶資料管理", path: "/customer-management" },
+  { icon: FileText, label: "訂單資料管理", path: "/order-management" },
   { icon: MessageSquare, label: "AI 洞察", path: "/ai-chat" },
   { icon: RefreshCw, label: "數據同步", path: "/sync" },
 ];
