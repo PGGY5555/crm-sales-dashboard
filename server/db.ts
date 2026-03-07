@@ -243,41 +243,45 @@ export async function getSalesTrend(
       break;
   }
 
-  const where = buildTrendConditions(filters);
+  // Use raw SQL to avoid Drizzle ORM GROUP BY alias issues with TiDB's only_full_group_by mode
+  const whereParts: string[] = [
+    "`shippedAt` IS NOT NULL",
+    "`orderStatus` != -1",
+  ];
+  const queryParams: any[] = [];
+  if (filters.dateRange?.from) {
+    whereParts.push("`shippedAt` >= ?");
+    queryParams.push(filters.dateRange.from);
+  }
+  if (filters.dateRange?.to) {
+    whereParts.push("`shippedAt` <= ?");
+    queryParams.push(filters.dateRange.to);
+  }
+  const whereClause = whereParts.join(" AND ");
 
+  let queryStr: string;
   if (period === "quarter") {
-    const result = await db
-      .select({
-        period: sql<string>`CONCAT(YEAR(${orders.shippedAt}), '-Q', QUARTER(${orders.shippedAt}))`,
-        revenue: sql<string>`COALESCE(SUM(${orders.total}), 0)`,
-        orderCount: sql<number>`COUNT(*)`,
-      })
-      .from(orders)
-      .where(where)
-      .groupBy(sql`CONCAT(YEAR(${orders.shippedAt}), '-Q', QUARTER(${orders.shippedAt}))`)
-      .orderBy(sql`CONCAT(YEAR(${orders.shippedAt}), '-Q', QUARTER(${orders.shippedAt}))`);
-    return result.map(r => ({
-      period: r.period,
-      revenue: parseFloat(r.revenue),
-      orderCount: Number(r.orderCount),
-    }));
+    queryStr = `SELECT CONCAT(YEAR(shippedAt), '-Q', QUARTER(shippedAt)) as period, COALESCE(SUM(total), 0) as revenue, COUNT(*) as orderCount FROM \`orders\` WHERE ${whereClause} GROUP BY period ORDER BY period`;
+  } else {
+    queryStr = `SELECT DATE_FORMAT(shippedAt, '${dateFormat}') as period, COALESCE(SUM(total), 0) as revenue, COUNT(*) as orderCount FROM \`orders\` WHERE ${whereClause} GROUP BY period ORDER BY period`;
   }
 
-  const result = await db
-    .select({
-      period: sql<string>`DATE_FORMAT(${orders.shippedAt}, ${dateFormat})`,
-      revenue: sql<string>`COALESCE(SUM(${orders.total}), 0)`,
-      orderCount: sql<number>`COUNT(*)`,
-    })
-    .from(orders)
-    .where(where)
-    .groupBy(sql`DATE_FORMAT(${orders.shippedAt}, ${dateFormat})`)
-    .orderBy(sql`DATE_FORMAT(${orders.shippedAt}, ${dateFormat})`);
+  // Execute via Drizzle's raw execute
+  const rawRows = await db.execute(sql.raw(
+    queryParams.length > 0
+      ? queryStr.replace(/\?/g, () => {
+          const val = queryParams.shift();
+          if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
+          return typeof val === 'string' ? `'${val}'` : String(val);
+        })
+      : queryStr
+  ));
 
-  return result.map(r => ({
-    period: r.period,
-    revenue: parseFloat(r.revenue),
-    orderCount: Number(r.orderCount),
+  const rows: any[] = Array.isArray(rawRows) ? ((rawRows as any)[0] ?? rawRows) : [];
+  return (Array.isArray(rows) ? rows : []).map((r: any) => ({
+    period: String(r.period),
+    revenue: parseFloat(r.revenue || '0'),
+    orderCount: Number(r.orderCount || 0),
   }));
 }
 
