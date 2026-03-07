@@ -12,6 +12,7 @@ import { importCustomersFromExcel, importOrdersFromExcel, importProductsFromExce
 import { sdk } from "./sdk";
 import { COOKIE_NAME } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
+import { getUserByOpenId } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -53,15 +54,20 @@ async function startServer() {
         res.status(401).json({ error: "未登入" });
         return;
       }
-      let user: any;
+      let session: any;
       try {
-        user = await sdk.verifySession(sessionCookie);
+        session = await sdk.verifySession(sessionCookie);
       } catch {
         res.status(401).json({ error: "登入已過期" });
         return;
       }
-      // Check admin role
-      if (!user || user.role !== "admin") {
+      if (!session) {
+        res.status(401).json({ error: "登入已過期" });
+        return;
+      }
+      // Fetch full user from DB to check role
+      const dbUser = await getUserByOpenId(session.openId);
+      if (!dbUser || dbUser.role !== "admin") {
         res.status(403).json({ error: "僅管理員可執行此操作" });
         return;
       }

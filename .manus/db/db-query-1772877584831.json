@@ -1,0 +1,17 @@
+{
+  "query": "SELECT id, openId, name, email, role FROM users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT id, openId, name, email, role FROM users;",
+  "rows": [
+    {
+      "id": "1",
+      "openId": "P2oqsfNvNfVLjnTKoEDU3E",
+      "name": "統宣T.S.",
+      "email": "smilebio@gmail.com",
+      "role": "admin"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\topenId\tname\temail\trole\n1\tP2oqsfNvNfVLjnTKoEDU3E\t統宣T.S.\tsmilebio@gmail.com\tadmin\n",
+  "stderr": "",
+  "execution_time_ms": 1659
+}
