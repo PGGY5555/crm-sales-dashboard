@@ -64,7 +64,7 @@ interface OrderRow {
   "配送方式"?: string;
   "備註"?: string;
   "出貨庫存點"?: string;
-  "出貨日期"?: string;
+  "出貨單日期"?: string;
 }
 
 interface ProductRow {
@@ -245,8 +245,8 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
       const shipped = isShippedFromText(firstRow["出貨狀態"]);
       const total = parseNum(firstRow["訂單總計"]);
       const shipmentFee = parseNum(firstRow["訂單運費"]);
-      // 讀取「出貨日期」欄位，若沒有則回退用出貨狀態 + 訂單日期
-      const shippedAtDate = parseDate(firstRow["出貨日期"]) || (shipped ? orderDate : null);
+      // 讀取「出貨單日期」欄位，若沒有則回退用出貨狀態 + 訂單日期
+      const shippedAtDate = parseDate(firstRow["出貨單日期"]) || (shipped ? orderDate : null);
 
       // Find customer by email
       const custEmail = firstRow["會員信箱"]?.trim() || firstRow["顧客信箱"]?.trim();
