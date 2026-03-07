@@ -795,8 +795,33 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
     .where(where);
 
   const items = await db
-    .select()
+    .select({
+      id: orders.id,
+      externalId: orders.externalId,
+      cartToken: orders.cartToken,
+      customerId: orders.customerId,
+      customerExternalId: orders.customerExternalId,
+      customerName: orders.customerName,
+      customerEmail: orders.customerEmail,
+      customerPhone: orders.customerPhone,
+      recipientName: orders.recipientName,
+      recipientPhone: orders.recipientPhone,
+      recipientEmail: orders.recipientEmail,
+      orderDate: orders.orderDate,
+      shippedAt: orders.shippedAt,
+      total: orders.total,
+      orderSource: orders.orderSource,
+      paymentMethod: orders.paymentMethod,
+      shippingMethod: orders.shippingMethod,
+      shippingAddress: orders.shippingAddress,
+      rawData: orders.rawData,
+      createdAt: orders.createdAt,
+      updatedAt: orders.updatedAt,
+      customerLineUid: customers.lineUid,
+      customerBlacklisted: customers.blacklisted,
+    })
     .from(orders)
+    .leftJoin(customers, eq(orders.customerId, customers.id))
     .where(where)
     .orderBy(desc(orders.orderDate))
     .limit(limit)

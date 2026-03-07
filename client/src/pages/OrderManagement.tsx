@@ -150,10 +150,10 @@ export default function OrderManagement() {
       "配送方式": o.shippingMethod || "",
       "收貨地址": o.shippingAddress || "",
       "訂單金額": o.total || "0",
-      "運費": o.shipmentFee || "0",
-      "出貨狀態": o.isShipped ? "已出貨" : "未出貨",
       "出貨日期": o.shippedAt ? new Date(o.shippedAt).toLocaleDateString("zh-TW") : "",
-      "訂單狀態": o.orderStatus === -1 ? "已取消" : o.orderStatus === 2 ? "已完成" : o.orderStatus === 1 ? "處理中" : "待處理",
+      "出貨狀態": o.shippedAt ? "已出貨" : "未出貨",
+      "LINE UID": (o as any).customerLineUid || "",
+      "黑名單": (o as any).customerBlacklisted || "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -368,7 +368,9 @@ export default function OrderManagement() {
                   </TableRow>
                 ) : (
                   data.items.map((o) => {
-                    const st = statusLabel(o.orderStatus);
+                    const st = o.shippedAt
+                      ? { text: "已出貨", cls: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" }
+                      : { text: "未出貨", cls: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" };
                     return (
                       <TableRow key={o.id} className={selectedIds.has(o.id) ? "bg-primary/5" : ""}>
                         <TableCell>
