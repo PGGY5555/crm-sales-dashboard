@@ -46,6 +46,12 @@ export const customers = mysqlTable("customers", {
   recipientName: varchar("recipientName", { length: 255 }),
   recipientPhone: varchar("recipientPhone", { length: 64 }),
   recipientEmail: varchar("recipientEmail", { length: 320 }),
+  /** Customer notes */
+  notes: text("notes"),
+  /** Blacklisted flag: '是' or '否' */
+  blacklisted: varchar("blacklisted", { length: 16 }).default("否"),
+  /** LINE UID */
+  lineUid: varchar("lineUid", { length: 255 }),
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

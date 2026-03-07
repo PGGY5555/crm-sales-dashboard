@@ -24,6 +24,7 @@ import {
   getOrderFilterOptions,
   batchDeleteCustomers,
   batchDeleteOrders,
+  getCustomerDetail,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
@@ -189,6 +190,8 @@ export const appRouter = router({
         lastShipmentFrom: z.date().optional(),
         lastShipmentTo: z.date().optional(),
         lifecycles: z.array(z.string()).optional(),
+        blacklisted: z.string().optional(),
+        lineUid: z.string().optional(),
         page: z.number().default(0),
         limit: z.number().default(50),
       }).optional())
@@ -218,6 +221,8 @@ export const appRouter = router({
         lastShipmentFrom: z.date().optional(),
         lastShipmentTo: z.date().optional(),
         lifecycles: z.array(z.string()).optional(),
+        blacklisted: z.string().optional(),
+        lineUid: z.string().optional(),
       }).optional())
       .query(async ({ input }) => {
         return getCustomerManagementExport(input ?? {});
@@ -234,6 +239,14 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
         }
         return batchDeleteCustomers(input.ids);
+      }),
+
+    detail: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const result = await getCustomerDetail(input.id);
+        if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "找不到該客戶" });
+        return result;
       }),
   }),
 

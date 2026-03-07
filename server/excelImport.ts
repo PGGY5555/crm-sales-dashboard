@@ -177,6 +177,9 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
       const recipientName = row["收貨人"]?.trim() || null;
       const recipientPhone = row["收貨人手機"]?.trim() || null;
       const recipientEmail = row["收貨人電子郵件"]?.trim() || null;
+      const notes = row["顧客備註"]?.trim() || null;
+      const blacklisted = row["黑名單"]?.trim() || "否";
+      const lineUid = row["LINE UID"]?.trim() || null;
 
       await db.insert(customers).values({
         externalId: extId,
@@ -193,6 +196,9 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
         recipientName,
         recipientPhone,
         recipientEmail,
+        notes,
+        blacklisted,
+        lineUid,
         rawData: row,
       }).onDuplicateKeyUpdate({
         set: {
@@ -205,6 +211,9 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
           recipientName,
           recipientPhone,
           recipientEmail,
+          notes,
+          blacklisted,
+          lineUid,
           rawData: row,
         },
       });

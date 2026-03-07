@@ -599,6 +599,8 @@ export interface CustomerManagementFilters {
   lastShipmentFrom?: Date;
   lastShipmentTo?: Date;
   lifecycles?: string[];
+  blacklisted?: string; // '是' or '否'
+  lineUid?: string; // text search
   // Pagination
   page?: number;
   limit?: number;
@@ -686,6 +688,14 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
 
   if (filters.lifecycles && filters.lifecycles.length > 0) {
     conditions.push(inArray(customers.lifecycle, filters.lifecycles as any));
+  }
+
+  if (filters.blacklisted) {
+    conditions.push(eq(customers.blacklisted, filters.blacklisted));
+  }
+
+  if (filters.lineUid) {
+    conditions.push(like(customers.lineUid, `%${filters.lineUid}%`));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -905,4 +915,45 @@ export async function batchDeleteOrders(ids: number[]): Promise<{ deleted: numbe
   }
 
   return { deleted: result[0]?.affectedRows ?? ids.length };
+}
+
+/** Get customer detail by ID */
+export async function getCustomerDetail(customerId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId));
+  if (!customer) return null;
+
+  // Get all orders for this customer
+  const customerOrders = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.customerId, customerId))
+    .orderBy(desc(orders.orderDate));
+
+  // Get order items for each order
+  const orderIds = customerOrders.map(o => o.id);
+  let items: any[] = [];
+  if (orderIds.length > 0) {
+    items = await db
+      .select()
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, orderIds));
+  }
+
+  // Group items by orderId
+  const itemsByOrder: Record<number, typeof items> = {};
+  for (const item of items) {
+    if (!itemsByOrder[item.orderId]) itemsByOrder[item.orderId] = [];
+    itemsByOrder[item.orderId].push(item);
+  }
+
+  return {
+    customer,
+    orders: customerOrders.map(o => ({
+      ...o,
+      items: itemsByOrder[o.id] || [],
+    })),
+  };
 }

@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2 } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, ExternalLink } from "lucide-react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
@@ -66,6 +67,8 @@ export default function CustomerManagement() {
   const [lastShipmentFrom, setLastShipmentFrom] = useState("");
   const [lastShipmentTo, setLastShipmentTo] = useState("");
   const [selectedLifecycles, setSelectedLifecycles] = useState<string[]>([]);
+  const [blacklisted, setBlacklisted] = useState("");
+  const [lineUid, setLineUid] = useState("");
 
   const [page, setPage] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
@@ -113,8 +116,10 @@ export default function CustomerManagement() {
     if (lastShipmentFrom) filters.lastShipmentFrom = new Date(lastShipmentFrom);
     if (lastShipmentTo) filters.lastShipmentTo = new Date(lastShipmentTo + "T23:59:59");
     if (selectedLifecycles.length > 0) filters.lifecycles = selectedLifecycles;
+    if (blacklisted) filters.blacklisted = blacklisted;
+    if (lineUid.trim()) filters.lineUid = lineUid.trim();
     return filters;
-  }, [page, searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, selectedLifecycles]);
+  }, [page, searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, selectedLifecycles, blacklisted, lineUid]);
 
   const queryFilters = useMemo(() => buildFilters(), [buildFilters]);
 
@@ -140,6 +145,8 @@ export default function CustomerManagement() {
     setLastShipmentFrom("");
     setLastShipmentTo("");
     setSelectedLifecycles([]);
+    setBlacklisted("");
+    setLineUid("");
     setPage(0);
   };
 
@@ -213,7 +220,10 @@ export default function CustomerManagement() {
       "收件人姓名": c.recipientName || "",
       "收件人手機": c.recipientPhone || "",
       "收件人信箱": c.recipientEmail || "",
-      "註冊日期": c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "",
+      "注冊日期": c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "",
+      "顧客備註": c.notes || "",
+      "黑名單": c.blacklisted || "否",
+      "LINE UID": c.lineUid || "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -251,7 +261,7 @@ export default function CustomerManagement() {
     creditsOp && creditsValue, totalSpentOp && totalSpentValue,
     totalOrdersOp && totalOrdersValue, lastPurchaseFrom, lastPurchaseTo,
     lastPurchaseAmountOp && lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo,
-    selectedLifecycles.length > 0,
+    selectedLifecycles.length > 0, blacklisted, lineUid,
   ].filter(Boolean).length;
 
   return (
@@ -408,6 +418,25 @@ export default function CustomerManagement() {
                 <Input placeholder="例：膠原,體驗" value={tags} onChange={e => { setTags(e.target.value); setPage(0); }} className="text-sm" />
               </div>
               <div className="space-y-1.5">
+                <label className="text-sm font-medium">黑名單</label>
+                <Select value={blacklisted} onValueChange={v => { setBlacklisted(v === "_clear" ? "" : v); setPage(0); }}>
+                  <SelectTrigger><SelectValue placeholder="全部" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_clear">全部</SelectItem>
+                    <SelectItem value="是">是</SelectItem>
+                    <SelectItem value="否">否</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">LINE UID</label>
+                <Input placeholder="輸入 LINE UID" value={lineUid} onChange={e => { setLineUid(e.target.value); setPage(0); }} className="text-sm" />
+              </div>
+            </div>
+
+            {/* Row 2b: Lifecycle */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-1.5">
                 <label className="text-sm font-medium">生命週期分類</label>
                 <div className="flex flex-wrap gap-1.5">
                   {LIFECYCLE_OPTIONS.map(lc => (
@@ -533,7 +562,12 @@ export default function CustomerManagement() {
                           aria-label={`選取 ${c.name}`}
                         />
                       </TableCell>
-                      <TableCell className="font-medium">{c.name || "-"}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link href={`/customer/${c.id}`} className="text-primary hover:underline inline-flex items-center gap-1">
+                          {c.name || "-"}
+                          <ExternalLink className="w-3 h-3" />
+                        </Link>
+                      </TableCell>
                       <TableCell className="text-sm">{c.email || "-"}</TableCell>
                       <TableCell className="text-sm">{c.phone || "-"}</TableCell>
                       <TableCell><Badge variant="outline" className="text-xs">{c.memberLevel || "-"}</Badge></TableCell>
