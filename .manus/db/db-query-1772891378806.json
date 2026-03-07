@@ -1,0 +1,18 @@
+{
+  "query": "SELECT id, name, lineUid, blacklisted, email, phone FROM customers WHERE name LIKE '%林佾漩%' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT id, name, lineUid, blacklisted, email, phone FROM customers WHERE name LIKE '%林佾漩%' LIMIT 5;",
+  "rows": [
+    {
+      "id": "48",
+      "name": "林佾漩",
+      "lineUid": "Uc88cb4b6e6316a77fb41d7541a459f91",
+      "blacklisted": "否",
+      "email": "syuan112@yahoo.com.tw",
+      "phone": "0961080327"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tlineUid\tblacklisted\temail\tphone\n48\t林佾漩\tUc88cb4b6e6316a77fb41d7541a459f91\t否\tsyuan112@yahoo.com.tw\t0961080327\n",
+  "stderr": "",
+  "execution_time_ms": 1629
+}

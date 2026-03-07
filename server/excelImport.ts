@@ -501,6 +501,14 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
       }
     }
 
+    // Backfill customerId on matched orders
+    if (custOrders.length > 0) {
+      const orderIds = custOrders.map((o: any) => o.id);
+      await db.update(orders)
+        .set({ customerId: cust.id })
+        .where(sql`${orders.id} IN (${sql.join(orderIds.map((id: number) => sql`${id}`), sql`, `)})`);
+    }
+
     const validOrders = custOrders.filter(o => o.orderStatus !== -1);
     const shippedOrders = validOrders.filter(o => o.isShipped && o.shippedAt);
 

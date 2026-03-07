@@ -821,7 +821,11 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
       customerBlacklisted: customers.blacklisted,
     })
     .from(orders)
-    .leftJoin(customers, eq(orders.customerId, customers.id))
+    .leftJoin(customers, or(
+      and(isNotNull(orders.customerId), eq(orders.customerId, customers.id)),
+      and(sql`${orders.customerId} IS NULL`, isNotNull(orders.customerExternalId), eq(orders.customerExternalId, customers.externalId)),
+      and(sql`${orders.customerId} IS NULL`, sql`${orders.customerExternalId} IS NULL`, isNotNull(orders.customerEmail), eq(orders.customerEmail, customers.email))
+    ))
     .where(where)
     .orderBy(desc(orders.orderDate))
     .limit(limit)
