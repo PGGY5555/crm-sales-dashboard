@@ -203,7 +203,23 @@ export async function getKPISummary(filters: DashboardFilters = {}) {
   };
 }
 
-/** Get sales trend data grouped by period */
+/** Build conditions for trend queries using shippedAt (shipment date) */
+function buildTrendConditions(filters: DashboardFilters) {
+  const conditions: any[] = [];
+  // Only include shipped orders (must have shippedAt)
+  conditions.push(sql`${orders.shippedAt} IS NOT NULL`);
+  if (filters.dateRange?.from) {
+    conditions.push(gte(orders.shippedAt, filters.dateRange.from));
+  }
+  if (filters.dateRange?.to) {
+    conditions.push(lte(orders.shippedAt, filters.dateRange.to));
+  }
+  // Exclude cancelled orders
+  conditions.push(sql`${orders.orderStatus} != -1`);
+  return and(...conditions);
+}
+
+/** Get sales trend data grouped by period (based on shipment date) */
 export async function getSalesTrend(
   period: "day" | "week" | "month" | "quarter" = "month",
   filters: DashboardFilters = {}
@@ -227,19 +243,19 @@ export async function getSalesTrend(
       break;
   }
 
-  const where = buildOrderConditions(filters);
+  const where = buildTrendConditions(filters);
 
   if (period === "quarter") {
     const result = await db
       .select({
-        period: sql<string>`CONCAT(YEAR(${orders.orderDate}), '-Q', QUARTER(${orders.orderDate}))`,
+        period: sql<string>`CONCAT(YEAR(${orders.shippedAt}), '-Q', QUARTER(${orders.shippedAt}))`,
         revenue: sql<string>`COALESCE(SUM(${orders.total}), 0)`,
         orderCount: sql<number>`COUNT(*)`,
       })
       .from(orders)
       .where(where)
-      .groupBy(sql`CONCAT(YEAR(${orders.orderDate}), '-Q', QUARTER(${orders.orderDate}))`)
-      .orderBy(sql`CONCAT(YEAR(${orders.orderDate}), '-Q', QUARTER(${orders.orderDate}))`);
+      .groupBy(sql`CONCAT(YEAR(${orders.shippedAt}), '-Q', QUARTER(${orders.shippedAt}))`)
+      .orderBy(sql`CONCAT(YEAR(${orders.shippedAt}), '-Q', QUARTER(${orders.shippedAt}))`);
     return result.map(r => ({
       period: r.period,
       revenue: parseFloat(r.revenue),
@@ -249,14 +265,14 @@ export async function getSalesTrend(
 
   const result = await db
     .select({
-      period: sql<string>`DATE_FORMAT(${orders.orderDate}, ${dateFormat})`,
+      period: sql<string>`DATE_FORMAT(${orders.shippedAt}, ${dateFormat})`,
       revenue: sql<string>`COALESCE(SUM(${orders.total}), 0)`,
       orderCount: sql<number>`COUNT(*)`,
     })
     .from(orders)
     .where(where)
-    .groupBy(sql`DATE_FORMAT(${orders.orderDate}, ${dateFormat})`)
-    .orderBy(sql`DATE_FORMAT(${orders.orderDate}, ${dateFormat})`);
+    .groupBy(sql`DATE_FORMAT(${orders.shippedAt}, ${dateFormat})`)
+    .orderBy(sql`DATE_FORMAT(${orders.shippedAt}, ${dateFormat})`);
 
   return result.map(r => ({
     period: r.period,

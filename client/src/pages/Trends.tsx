@@ -60,7 +60,7 @@ export default function Trends() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">銷售趨勢</h1>
         <p className="text-muted-foreground mt-1">
-          追蹤不同時段的銷售表現與訂單量變化
+          依出貨日期追蹤不同時段的銷售表現與出貨量變化
         </p>
       </div>
 
@@ -181,7 +181,7 @@ export default function Trends() {
       {/* Order Count Bar Chart */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">訂單量趨勢</CardTitle>
+          <CardTitle className="text-base">出貨量趨勢</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -193,7 +193,7 @@ export default function Trends() {
                 <XAxis dataKey="period" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip
-                  formatter={(value: number) => [`${value} 筆`, "訂單數"]}
+                  formatter={(value: number) => [`${value} 筆`, "出貨數"]}
                   contentStyle={{
                     borderRadius: "8px",
                     border: "1px solid var(--border)",
