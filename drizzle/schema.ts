@@ -109,3 +109,49 @@ export const settings = mysqlTable("settings", {
 
 export type Setting = typeof settings.$inferSelect;
 export type InsertSetting = typeof settings.$inferInsert;
+
+/**
+ * Products - synced from Shopnex or imported via Excel
+ */
+export const products = mysqlTable("products", {
+  id: int("id").autoincrement().primaryKey(),
+  externalId: varchar("externalId", { length: 128 }).unique(),
+  name: varchar("name", { length: 512 }),
+  sku: varchar("sku", { length: 128 }),
+  barcode: varchar("barcode", { length: 128 }),
+  category: varchar("category", { length: 255 }),
+  posCategory: varchar("posCategory", { length: 255 }),
+  status: varchar("status", { length: 64 }),
+  cost: decimal("cost", { precision: 12, scale: 2 }),
+  price: decimal("price", { precision: 12, scale: 2 }),
+  originalPrice: decimal("originalPrice", { precision: 12, scale: 2 }),
+  profit: decimal("profit", { precision: 12, scale: 2 }),
+  stockQuantity: int("stockQuantity").default(0),
+  supplier: varchar("supplier", { length: 255 }),
+  tags: text("tags"),
+  salesChannel: varchar("salesChannel", { length: 255 }),
+  rawData: json("rawData"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = typeof products.$inferInsert;
+
+/**
+ * Order Items - line items for each order
+ */
+export const orderItems = mysqlTable("orderItems", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId"),
+  orderExternalId: varchar("orderExternalId", { length: 128 }),
+  productName: varchar("productName", { length: 512 }),
+  productSku: varchar("productSku", { length: 128 }),
+  productSpec: varchar("productSpec", { length: 255 }),
+  quantity: int("quantity").default(1),
+  unitPrice: decimal("unitPrice", { precision: 12, scale: 2 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type OrderItem = typeof orderItems.$inferSelect;
+export type InsertOrderItem = typeof orderItems.$inferInsert;
