@@ -877,10 +877,16 @@ export async function batchDeleteCustomers(ids: number[]): Promise<{ deleted: nu
   if (!db || ids.length === 0) return { deleted: 0 };
 
   // Also delete orders and order items belonging to these customers
-  const customerOrders = await db.select({ id: orders.id }).from(orders).where(inArray(orders.customerId, ids));
+  const customerOrders = await db.select({ id: orders.id, externalId: orders.externalId }).from(orders).where(inArray(orders.customerId, ids));
   const orderIds = customerOrders.map(o => o.id);
+  const orderExtIds = customerOrders.map(o => o.externalId).filter(Boolean) as string[];
   if (orderIds.length > 0) {
     await db.delete(orderItems).where(inArray(orderItems.orderId, orderIds));
+  }
+  if (orderExtIds.length > 0) {
+    await db.delete(orderItems).where(inArray(orderItems.orderExternalId, orderExtIds));
+  }
+  if (orderIds.length > 0) {
     await db.delete(orders).where(inArray(orders.id, orderIds));
   }
 
@@ -893,8 +899,14 @@ export async function batchDeleteOrders(ids: number[]): Promise<{ deleted: numbe
   const db = await getDb();
   if (!db || ids.length === 0) return { deleted: 0 };
 
-  // Delete order items first
+  // Delete order items first (by orderId and by orderExternalId)
   await db.delete(orderItems).where(inArray(orderItems.orderId, ids));
+  // Also delete by orderExternalId for items that may not have orderId set
+  const ordersToDelete = await db.select({ externalId: orders.externalId }).from(orders).where(inArray(orders.id, ids));
+  const extIdsToDelete = ordersToDelete.map(o => o.externalId).filter(Boolean) as string[];
+  if (extIdsToDelete.length > 0) {
+    await db.delete(orderItems).where(inArray(orderItems.orderExternalId, extIdsToDelete));
+  }
 
   // Delete orders
   const result = await db.delete(orders).where(inArray(orders.id, ids));
@@ -967,8 +979,9 @@ export async function getCustomerDetail(customerId: number) {
     .where(eq(orders.customerId, customerId))
     .orderBy(desc(orders.orderDate));
 
-  // Get order items for each order
+  // Get order items for each order - try by orderId first, fallback to orderExternalId
   const orderIds = customerOrders.map(o => o.id);
+  const orderExternalIds = customerOrders.map(o => o.externalId).filter(Boolean) as string[];
   let items: any[] = [];
   if (orderIds.length > 0) {
     items = await db
@@ -976,12 +989,33 @@ export async function getCustomerDetail(customerId: number) {
       .from(orderItems)
       .where(inArray(orderItems.orderId, orderIds));
   }
+  // Fallback: also fetch by orderExternalId for items without orderId
+  if (orderExternalIds.length > 0) {
+    const extItems = await db
+      .select()
+      .from(orderItems)
+      .where(inArray(orderItems.orderExternalId, orderExternalIds));
+    // Merge, avoiding duplicates
+    const existingIds = new Set(items.map(i => i.id));
+    for (const ei of extItems) {
+      if (!existingIds.has(ei.id)) items.push(ei);
+    }
+  }
 
-  // Group items by orderId
+  // Build externalId -> orderId mapping
+  const extToId: Record<string, number> = {};
+  for (const o of customerOrders) {
+    if (o.externalId) extToId[o.externalId] = o.id;
+  }
+
+  // Group items by orderId (resolve via orderId or orderExternalId)
   const itemsByOrder: Record<number, typeof items> = {};
   for (const item of items) {
-    if (!itemsByOrder[item.orderId]) itemsByOrder[item.orderId] = [];
-    itemsByOrder[item.orderId].push(item);
+    const oid = item.orderId || (item.orderExternalId ? extToId[item.orderExternalId] : null);
+    if (oid) {
+      if (!itemsByOrder[oid]) itemsByOrder[oid] = [];
+      itemsByOrder[oid].push(item);
+    }
   }
 
   return {
@@ -1019,11 +1053,19 @@ export async function getOrderDetail(orderId: number) {
     customer = c || null;
   }
 
-  // Get order items
-  const items = await db
+  // Get order items - try by orderId first, then by orderExternalId
+  let items = await db
     .select()
     .from(orderItems)
     .where(eq(orderItems.orderId, orderId));
+
+  // Fallback: match by orderExternalId if no items found by orderId
+  if (items.length === 0 && order.externalId) {
+    items = await db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderExternalId, order.externalId));
+  }
 
   return {
     order,

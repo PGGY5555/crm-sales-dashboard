@@ -1,0 +1,46 @@
+{
+  "query": "SELECT COUNT(*) as total FROM orderItems; SELECT oi.id, oi.orderId, oi.orderExternalId, oi.productName, oi.quantity FROM orderItems oi LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT COUNT(*) as total FROM orderItems; SELECT oi.id, oi.orderId, oi.orderExternalId, oi.productName, oi.quantity FROM orderItems oi LIMIT 10;",
+  "rows": [
+    {
+      "total": "502"
+    },
+    {
+      "total": "id\torderId\torderExternalId\tproductName\tquantity"
+    },
+    {
+      "total": "120001\tNULL\t2603062780381798\t【今天免運】白皇后電熱睫毛夾\t1"
+    },
+    {
+      "total": "120002\tNULL\t2603062779746609\t【今天免運】白皇后電熱睫毛夾\t1"
+    },
+    {
+      "total": "120003\tNULL\t2603062779554789\t【促銷】膠原蛋白肽蜂王乳-百香鳳梨口味\t1"
+    },
+    {
+      "total": "120004\tNULL\t2603062779554789\t☆美肌禮-淨化毛孔調理精華液\t1"
+    },
+    {
+      "total": "120005\tNULL\t2603062778855561\t女王節【買4送3】膠原蛋白自由選\t7"
+    },
+    {
+      "total": "120006\tNULL\t2603062778855561\t☆美肌禮-淨化毛孔調理精華液\t1"
+    },
+    {
+      "total": "120007\tNULL\t2603062778855561\t☆限量禮-閨密護蔓越莓20包\t1"
+    },
+    {
+      "total": "120008\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t1"
+    },
+    {
+      "total": "120009\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t6"
+    },
+    {
+      "total": "120010\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t4"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\n502\nid\torderId\torderExternalId\tproductName\tquantity\n120001\tNULL\t2603062780381798\t【今天免運】白皇后電熱睫毛夾\t1\n120002\tNULL\t2603062779746609\t【今天免運】白皇后電熱睫毛夾\t1\n120003\tNULL\t2603062779554789\t【促銷】膠原蛋白肽蜂王乳-百香鳳梨口味\t1\n120004\tNULL\t2603062779554789\t☆美肌禮-淨化毛孔調理精華液\t1\n120005\tNULL\t2603062778855561\t女王節【買4送3】膠原蛋白自由選\t7\n120006\tNULL\t2603062778855561\t☆美肌禮-淨化毛孔調理精華液\t1\n120007\tNULL\t2603062778855561\t☆限量禮-閨密護蔓越莓20包\t1\n120008\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t1\n120009\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t6\n120010\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t4\n",
+  "stderr": "",
+  "execution_time_ms": 1862
+}

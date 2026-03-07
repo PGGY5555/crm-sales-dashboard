@@ -375,6 +375,7 @@ export default function OrderManagement() {
                     />
                   </TableHead>
                   <TableHead className="min-w-[120px]">訂單編號</TableHead>
+                  <TableHead className="min-w-[60px]">詳情</TableHead>
                   <TableHead className="min-w-[90px]">訂單日期</TableHead>
                   <TableHead className="min-w-[80px]">顧客姓名</TableHead>
                   <TableHead className="min-w-[100px]">顧客手機</TableHead>
@@ -388,17 +389,16 @@ export default function OrderManagement() {
                   <TableHead className="min-w-[110px]">出貨單號碼</TableHead>
                   <TableHead className="min-w-[100px]">配送編號</TableHead>
                   <TableHead className="min-w-[80px]">物流狀態</TableHead>
-                  <TableHead className="min-w-[60px]">詳情</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
+                    <TableCell colSpan={16} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
                   </TableRow>
                 ) : !data?.items?.length ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">無符合條件的訂單資料</TableCell>
+                    <TableCell colSpan={16} className="text-center py-8 text-muted-foreground">無符合條件的訂單資料</TableCell>
                   </TableRow>
                 ) : (
                   data.items.map((o) => {
@@ -415,6 +415,13 @@ export default function OrderManagement() {
                           />
                         </TableCell>
                         <TableCell className="font-mono text-sm">{o.externalId || "-"}</TableCell>
+                        <TableCell>
+                          <Link href={`/order-detail/${o.id}`}>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          </Link>
+                        </TableCell>
                         <TableCell className="text-sm">{o.orderDate ? new Date(o.orderDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
                         <TableCell className="font-medium">{o.customerName || "-"}</TableCell>
                         <TableCell className="text-sm">{o.customerPhone || "-"}</TableCell>
@@ -430,13 +437,6 @@ export default function OrderManagement() {
                         <TableCell className="text-sm font-mono">{(o as any).shipmentNumber || "-"}</TableCell>
                         <TableCell className="text-sm font-mono">{(o as any).deliveryNumber || "-"}</TableCell>
                         <TableCell className="text-sm">{(o as any).logisticsStatus || "-"}</TableCell>
-                        <TableCell>
-                          <Link href={`/order-detail/${o.id}`}>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                          </Link>
-                        </TableCell>
                       </TableRow>
                     );
                   })

@@ -1,0 +1,70 @@
+{
+  "query": "SELECT oi.id, oi.orderId, oi.orderExternalId, LEFT(oi.productName, 30) as productName FROM orderItems oi ORDER BY oi.id LIMIT 10",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT oi.id, oi.orderId, oi.orderExternalId, LEFT(oi.productName, 30) as productName FROM orderItems oi ORDER BY oi.id LIMIT 10",
+  "rows": [
+    {
+      "id": "120001",
+      "orderId": "NULL",
+      "orderExternalId": "2603062780381798",
+      "productName": "【今天免運】白皇后電熱睫毛夾"
+    },
+    {
+      "id": "120002",
+      "orderId": "NULL",
+      "orderExternalId": "2603062779746609",
+      "productName": "【今天免運】白皇后電熱睫毛夾"
+    },
+    {
+      "id": "120003",
+      "orderId": "NULL",
+      "orderExternalId": "2603062779554789",
+      "productName": "【促銷】膠原蛋白肽蜂王乳-百香鳳梨口味"
+    },
+    {
+      "id": "120004",
+      "orderId": "NULL",
+      "orderExternalId": "2603062779554789",
+      "productName": "☆美肌禮-淨化毛孔調理精華液"
+    },
+    {
+      "id": "120005",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778855561",
+      "productName": "女王節【買4送3】膠原蛋白自由選"
+    },
+    {
+      "id": "120006",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778855561",
+      "productName": "☆美肌禮-淨化毛孔調理精華液"
+    },
+    {
+      "id": "120007",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778855561",
+      "productName": "☆限量禮-閨密護蔓越莓20包"
+    },
+    {
+      "id": "120008",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "女王節【買4送3】膠原蛋白自由選"
+    },
+    {
+      "id": "120009",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "女王節【買4送3】膠原蛋白自由選"
+    },
+    {
+      "id": "120010",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "女王節【買4送3】膠原蛋白自由選"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\torderId\torderExternalId\tproductName\n120001\tNULL\t2603062780381798\t【今天免運】白皇后電熱睫毛夾\n120002\tNULL\t2603062779746609\t【今天免運】白皇后電熱睫毛夾\n120003\tNULL\t2603062779554789\t【促銷】膠原蛋白肽蜂王乳-百香鳳梨口味\n120004\tNULL\t2603062779554789\t☆美肌禮-淨化毛孔調理精華液\n120005\tNULL\t2603062778855561\t女王節【買4送3】膠原蛋白自由選\n120006\tNULL\t2603062778855561\t☆美肌禮-淨化毛孔調理精華液\n120007\tNULL\t2603062778855561\t☆限量禮-閨密護蔓越莓20包\n120008\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\n120009\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\n120010\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\n",
+  "stderr": "",
+  "execution_time_ms": 1604
+}

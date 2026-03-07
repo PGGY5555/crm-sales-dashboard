@@ -355,12 +355,24 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
       });
       ordersProcessed++;
 
+      // Get the orderId for the upserted order
+      const [upsertedOrder] = await db.select({ id: orders.id }).from(orders).where(eq(orders.externalId, orderNum));
+      const resolvedOrderId = upsertedOrder?.id || null;
+
+      // Delete existing order items for this order (in case of re-import)
+      if (resolvedOrderId) {
+        await db.delete(orderItems).where(eq(orderItems.orderId, resolvedOrderId));
+      } else {
+        await db.delete(orderItems).where(eq(orderItems.orderExternalId, orderNum));
+      }
+
       // Insert order items
       for (const itemRow of orderRows) {
         const productName = itemRow["商品名稱"]?.trim();
         if (!productName) continue;
 
         await db.insert(orderItems).values({
+          orderId: resolvedOrderId,
           orderExternalId: orderNum,
           productName,
           productSku: itemRow["商品SKU"]?.trim() || null,

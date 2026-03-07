@@ -1,0 +1,130 @@
+{
+  "query": "SELECT oi.id, oi.orderId, oi.orderExternalId, oi.productName, oi.quantity, oi.unitPrice FROM orderItems oi LIMIT 15",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT oi.id, oi.orderId, oi.orderExternalId, oi.productName, oi.quantity, oi.unitPrice FROM orderItems oi LIMIT 15",
+  "rows": [
+    {
+      "id": "120001",
+      "orderId": "NULL",
+      "orderExternalId": "2603062780381798",
+      "productName": "【今天免運】白皇后電熱睫毛夾",
+      "quantity": "1",
+      "unitPrice": "599.00"
+    },
+    {
+      "id": "120002",
+      "orderId": "NULL",
+      "orderExternalId": "2603062779746609",
+      "productName": "【今天免運】白皇后電熱睫毛夾",
+      "quantity": "1",
+      "unitPrice": "599.00"
+    },
+    {
+      "id": "120003",
+      "orderId": "NULL",
+      "orderExternalId": "2603062779554789",
+      "productName": "【促銷】膠原蛋白肽蜂王乳-百香鳳梨口味",
+      "quantity": "1",
+      "unitPrice": "1680.00"
+    },
+    {
+      "id": "120004",
+      "orderId": "NULL",
+      "orderExternalId": "2603062779554789",
+      "productName": "☆美肌禮-淨化毛孔調理精華液",
+      "quantity": "1",
+      "unitPrice": "0.00"
+    },
+    {
+      "id": "120005",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778855561",
+      "productName": "女王節【買4送3】膠原蛋白自由選",
+      "quantity": "7",
+      "unitPrice": "480.00"
+    },
+    {
+      "id": "120006",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778855561",
+      "productName": "☆美肌禮-淨化毛孔調理精華液",
+      "quantity": "1",
+      "unitPrice": "0.00"
+    },
+    {
+      "id": "120007",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778855561",
+      "productName": "☆限量禮-閨密護蔓越莓20包",
+      "quantity": "1",
+      "unitPrice": "0.00"
+    },
+    {
+      "id": "120008",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "女王節【買4送3】膠原蛋白自由選",
+      "quantity": "1",
+      "unitPrice": "480.00"
+    },
+    {
+      "id": "120009",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "女王節【買4送3】膠原蛋白自由選",
+      "quantity": "6",
+      "unitPrice": "480.00"
+    },
+    {
+      "id": "120010",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "女王節【買4送3】膠原蛋白自由選",
+      "quantity": "4",
+      "unitPrice": "480.00"
+    },
+    {
+      "id": "120011",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "女王節【買4送3】膠原蛋白自由選",
+      "quantity": "4",
+      "unitPrice": "480.00"
+    },
+    {
+      "id": "120012",
+      "orderId": "NULL",
+      "orderExternalId": "2603062778111861",
+      "productName": "洗臉機-贈禮",
+      "quantity": "1",
+      "unitPrice": "0.00"
+    },
+    {
+      "id": "120013",
+      "orderId": "NULL",
+      "orderExternalId": "2603062777872794",
+      "productName": "新戶專屬【體驗1盒699免運】膠原蛋白",
+      "quantity": "1",
+      "unitPrice": "699.00"
+    },
+    {
+      "id": "120014",
+      "orderId": "NULL",
+      "orderExternalId": "2603062775521958",
+      "productName": "【送RF電波電流美容儀】膠原蛋白任選14盒59折(140天份)",
+      "quantity": "14",
+      "unitPrice": "499.00"
+    },
+    {
+      "id": "120015",
+      "orderId": "NULL",
+      "orderExternalId": "2603062775521958",
+      "productName": "RF美容儀-超值贈禮",
+      "quantity": "1",
+      "unitPrice": "0.00"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\torderId\torderExternalId\tproductName\tquantity\tunitPrice\n120001\tNULL\t2603062780381798\t【今天免運】白皇后電熱睫毛夾\t1\t599.00\n120002\tNULL\t2603062779746609\t【今天免運】白皇后電熱睫毛夾\t1\t599.00\n120003\tNULL\t2603062779554789\t【促銷】膠原蛋白肽蜂王乳-百香鳳梨口味\t1\t1680.00\n120004\tNULL\t2603062779554789\t☆美肌禮-淨化毛孔調理精華液\t1\t0.00\n120005\tNULL\t2603062778855561\t女王節【買4送3】膠原蛋白自由選\t7\t480.00\n120006\tNULL\t2603062778855561\t☆美肌禮-淨化毛孔調理精華液\t1\t0.00\n120007\tNULL\t2603062778855561\t☆限量禮-閨密護蔓越莓20包\t1\t0.00\n120008\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t1\t480.00\n120009\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t6\t480.00\n120010\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t4\t480.00\n120011\tNULL\t2603062778111861\t女王節【買4送3】膠原蛋白自由選\t4\t480.00\n120012\tNULL\t2603062778111861\t洗臉機-贈禮\t1\t0.00\n120013\tNULL\t2603062777872794\t新戶專屬【體驗1盒699免運】膠原蛋白\t1\t699.00\n120014\tNULL\t2603062775521958\t【送RF電波電流美容儀】膠原蛋白任選14盒59折(140天份)\t14\t499.00\n120015\tNULL\t2603062775521958\tRF美容儀-超值贈禮\t1\t0.00\n",
+  "stderr": "",
+  "execution_time_ms": 1664
+}
