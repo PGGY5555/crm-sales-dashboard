@@ -1,0 +1,20 @@
+{
+  "query": "\nSELECT \n  COUNT(*) as total_orders,\n  COUNT(CASE WHEN orderStatus = 2 THEN 1 END) as completed_orders,\n  COUNT(CASE WHEN orderStatus = -1 THEN 1 END) as cancelled_orders,\n  COUNT(CASE WHEN customerId IS NOT NULL THEN 1 END) as orders_with_customer,\n  MIN(orderDate) as earliest_order,\n  MAX(orderDate) as latest_order,\n  AVG(total) as avg_order_value,\n  COUNT(DISTINCT customerId) as unique_customers_in_orders\nFROM orders;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute \nSELECT \n  COUNT(*) as total_orders,\n  COUNT(CASE WHEN orderStatus = 2 THEN 1 END) as completed_orders,\n  COUNT(CASE WHEN orderStatus = -1 THEN 1 END) as cancelled_orders,\n  COUNT(CASE WHEN customerId IS NOT NULL THEN 1 END) as orders_with_customer,\n  MIN(orderDate) as earliest_order,\n  MAX(orderDate) as latest_order,\n  AVG(total) as avg_order_value,\n  COUNT(DISTINCT customerId) as unique_customers_in_orders\nFROM orders;\n",
+  "rows": [
+    {
+      "total_orders": "223",
+      "completed_orders": "222",
+      "cancelled_orders": "1",
+      "orders_with_customer": "73",
+      "earliest_order": "2026-02-26 15:23:43",
+      "latest_order": "2026-03-06 14:59:43",
+      "avg_order_value": "2108.578475",
+      "unique_customers_in_orders": "73"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_orders\tcompleted_orders\tcancelled_orders\torders_with_customer\tearliest_order\tlatest_order\tavg_order_value\tunique_customers_in_orders\n223\t222\t1\t73\t2026-02-26 15:23:43\t2026-03-06 14:59:43\t2108.578475\t73\n",
+  "stderr": "",
+  "execution_time_ms": 1587
+}

@@ -72,3 +72,5 @@
 - [x] 修改：客戶資料管理新增訂單詳情連結
 - [x] 修復：訂單詳情頁商品明細資料不顯示（orderId 為 NULL，改用 orderExternalId fallback）
 - [x] 修改：訂單資料管理表格詳情按鈕移到訂單編號下一欄（訂單日期前面）
+- [x] 修復：Excel 匯入客戶時 registeredAt 未從「註冊時間」欄位讀取（寫死為 null）
+- [x] 回填：現有 212 筆客戶從 rawData 中提取「註冊時間」寫入 registeredAt（全部成功）

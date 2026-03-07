@@ -33,6 +33,7 @@ interface CustomerRow {
   "手機載具"?: string;
   "統一編號"?: string;
   "公司"?: string;
+  "註冊時間"?: string;
 }
 
 interface OrderRow {
@@ -182,12 +183,20 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
       const blacklisted = row["黑名單"]?.trim() || "否";
       const lineUid = row["LINE UID"]?.trim() || null;
 
+      // Parse registration date from Excel
+      let registeredAt: Date | null = null;
+      const regTimeStr = row["註冊時間"]?.trim();
+      if (regTimeStr) {
+        const parsed = new Date(regTimeStr);
+        if (!isNaN(parsed.getTime())) registeredAt = parsed;
+      }
+
       await db.insert(customers).values({
         externalId: extId,
         name: name || null,
         email: email || null,
         phone: phone || null,
-        registeredAt: null,
+        registeredAt,
         totalOrders: 0,
         totalSpent: "0",
         birthday,
@@ -205,6 +214,7 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
         set: {
           name: name || null,
           phone: phone || null,
+          registeredAt,
           birthday,
           tags,
           memberLevel,

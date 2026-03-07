@@ -1,0 +1,9 @@
+{
+  "query": "\nUPDATE customers \nSET registeredAt = STR_TO_DATE(JSON_UNQUOTE(JSON_EXTRACT(rawData, '$.\"註冊時間\"')), '%Y-%m-%d %H:%i:%s')\nWHERE rawData IS NOT NULL \n  AND JSON_UNQUOTE(JSON_EXTRACT(rawData, '$.\"註冊時間\"')) IS NOT NULL\n  AND JSON_UNQUOTE(JSON_EXTRACT(rawData, '$.\"註冊時間\"')) != ''\n  AND registeredAt IS NULL;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute \nUPDATE customers \nSET registeredAt = STR_TO_DATE(JSON_UNQUOTE(JSON_EXTRACT(rawData, '$.\"註冊時間\"')), '%Y-%m-%d %H:%i:%s')\nWHERE rawData IS NOT NULL \n  AND JSON_UNQUOTE(JSON_EXTRACT(rawData, '$.\"註冊時間\"')) IS NOT NULL\n  AND JSON_UNQUOTE(JSON_EXTRACT(rawData, '$.\"註冊時間\"')) != ''\n  AND registeredAt IS NULL;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1635
+}
