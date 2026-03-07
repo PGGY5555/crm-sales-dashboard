@@ -1,17 +1,10 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, bigint, json, boolean } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
  */
 export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
   id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -25,4 +18,75 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+/**
+ * CRM Customers - synced from Shopnex API
+ */
+export const customers = mysqlTable("customers", {
+  id: int("id").autoincrement().primaryKey(),
+  externalId: varchar("externalId", { length: 128 }).notNull().unique(),
+  name: varchar("name", { length: 255 }),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 64 }),
+  registeredAt: timestamp("registeredAt"),
+  lastShipmentAt: timestamp("lastShipmentAt"),
+  totalOrders: int("totalOrders").default(0).notNull(),
+  totalSpent: decimal("totalSpent", { precision: 12, scale: 2 }).default("0").notNull(),
+  /** NASLDO classification */
+  lifecycle: mysqlEnum("lifecycle", ["N", "A", "S", "L", "D", "O"]).default("O"),
+  /** Average repurchase days */
+  avgRepurchaseDays: int("avgRepurchaseDays"),
+  rawData: json("rawData"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = typeof customers.$inferInsert;
+
+/**
+ * CRM Orders - synced from Shopnex API
+ */
+export const orders = mysqlTable("orders", {
+  id: int("id").autoincrement().primaryKey(),
+  externalId: varchar("externalId", { length: 128 }).notNull().unique(),
+  cartToken: varchar("cartToken", { length: 128 }),
+  customerId: int("customerId"),
+  customerExternalId: varchar("customerExternalId", { length: 128 }),
+  customerName: varchar("customerName", { length: 255 }),
+  customerEmail: varchar("customerEmail", { length: 320 }),
+  customerPhone: varchar("customerPhone", { length: 64 }),
+  /** Order status: -1=cancelled, 0=pending, 1=confirmed, 2=completed */
+  orderStatus: int("orderStatus").default(0),
+  /** Progress: wait, shipping, done, etc. */
+  progress: varchar("progress", { length: 64 }),
+  total: decimal("total", { precision: 12, scale: 2 }).default("0"),
+  shipmentFee: decimal("shipmentFee", { precision: 10, scale: 2 }).default("0"),
+  /** Salesperson / channel */
+  salesRep: varchar("salesRep", { length: 255 }),
+  isShipped: boolean("isShipped").default(false),
+  shippedAt: timestamp("shippedAt"),
+  archived: boolean("archived").default(false),
+  orderDate: timestamp("orderDate"),
+  rawData: json("rawData"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = typeof orders.$inferInsert;
+
+/**
+ * Sync log to track CRM data synchronization
+ */
+export const syncLogs = mysqlTable("syncLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  syncType: varchar("syncType", { length: 64 }).notNull(),
+  status: mysqlEnum("status", ["running", "success", "failed"]).default("running").notNull(),
+  recordsProcessed: int("recordsProcessed").default(0),
+  errorMessage: text("errorMessage"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type SyncLog = typeof syncLogs.$inferSelect;
+export type InsertSyncLog = typeof syncLogs.$inferInsert;
