@@ -192,3 +192,18 @@ export const orderItems = mysqlTable("orderItems", {
 
 export type OrderItem = typeof orderItems.$inferSelect;
 export type InsertOrderItem = typeof orderItems.$inferInsert;
+
+/**
+ * User Permissions - fine-grained access control per user
+ */
+export const userPermissions = mysqlTable("userPermissions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  permissions: json("permissions").notNull(),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserPermission = typeof userPermissions.$inferSelect;
+export type InsertUserPermission = typeof userPermissions.$inferInsert;

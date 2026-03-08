@@ -23,6 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { usePermissions } from "@/hooks/usePermissions";
 
 type ExcelFileType = "customers" | "orders" | "products" | "logistics";
 
@@ -35,6 +36,15 @@ interface UploadState {
 export default function Sync() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const { hasPermission } = usePermissions();
+  const canUploadCustomers = hasPermission("excel_import_customers");
+  const canUploadOrders = hasPermission("excel_import_orders");
+  const canUploadProducts = hasPermission("excel_import_products");
+  const canUploadLogistics = hasPermission("excel_import_logistics");
+  const canClearData = hasPermission("excel_clear_data");
+  const canApiCredentials = hasPermission("api_credentials");
+  const canApiExecute = hasPermission("api_sync_execute");
+  const canApiStatus = hasPermission("api_sync_status");
 
   const [apiToken, setApiToken] = useState("");
   const [appName, setAppName] = useState("");
@@ -387,7 +397,7 @@ export default function Sync() {
         {/* Excel Import Tab */}
         <TabsContent value="excel" className="space-y-6 mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {renderUploadCard(
+            {canUploadCustomers && renderUploadCard(
               "customers",
               <Users className="h-5 w-5 text-blue-600" />,
               "顧客列表",
@@ -395,7 +405,7 @@ export default function Sync() {
               customerUpload,
               customerFileRef,
             )}
-            {renderUploadCard(
+            {canUploadOrders && renderUploadCard(
               "orders",
               <ShoppingCart className="h-5 w-5 text-green-600" />,
               "訂單列表",
@@ -403,7 +413,7 @@ export default function Sync() {
               orderUpload,
               orderFileRef,
             )}
-            {renderUploadCard(
+            {canUploadProducts && renderUploadCard(
               "products",
               <Package className="h-5 w-5 text-purple-600" />,
               "商品列表",
@@ -411,7 +421,7 @@ export default function Sync() {
               productUpload,
               productFileRef,
             )}
-            {renderUploadCard(
+            {canUploadLogistics && renderUploadCard(
               "logistics",
               <Truck className="h-5 w-5 text-orange-600" />,
               "訂單物流檔",
@@ -422,7 +432,7 @@ export default function Sync() {
           </div>
 
           {/* Clear Data Card */}
-          <Card className="border-destructive/30">
+          {canClearData && <Card className="border-destructive/30">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Trash2 className="h-5 w-5 text-destructive" />
@@ -516,7 +526,7 @@ export default function Sync() {
                 </AlertDialogContent>
               </AlertDialog>
             </CardContent>
-          </Card>
+          </Card>}
 
           <Card>
             <CardHeader>
@@ -541,7 +551,7 @@ export default function Sync() {
         <TabsContent value="api" className="space-y-6 mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Credential Management */}
-            <Card>
+            {canApiCredentials && <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
                   <Key className="h-5 w-5 text-primary" />
@@ -631,11 +641,10 @@ export default function Sync() {
                   </Button>
                 </div>
               </CardContent>
-            </Card>
+            </Card>}
 
-            {/* Sync Control & Status */}
             <div className="space-y-6">
-              <Card>
+              {canApiExecute && <Card>
                 <CardHeader>
                   <CardTitle className="text-base">執行同步</CardTitle>
                   <CardDescription>
@@ -670,9 +679,9 @@ export default function Sync() {
                     </p>
                   )}
                 </CardContent>
-              </Card>
+              </Card>}
 
-              <Card>
+              {canApiStatus && <Card>
                 <CardHeader>
                   <CardTitle className="text-base">同步狀態</CardTitle>
                   <CardDescription>最近一次同步記錄</CardDescription>
@@ -726,7 +735,7 @@ export default function Sync() {
                     </div>
                   )}
                 </CardContent>
-              </Card>
+              </Card>}
             </div>
           </div>
         </TabsContent>

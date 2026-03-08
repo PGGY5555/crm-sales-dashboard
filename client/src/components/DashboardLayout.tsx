@@ -21,21 +21,24 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw, UserCog, FileText } from "lucide-react";
+import { usePermissions } from "@/hooks/usePermissions";
+import type { PermissionKey } from "@shared/permissions";
+import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw, UserCog, FileText, Shield } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "儀表板總覽", path: "/" },
-  { icon: TrendingUp, label: "銷售趨勢", path: "/trends" },
-  { icon: Filter, label: "銷售漏斗", path: "/funnel" },
-  { icon: Users, label: "客戶分析", path: "/customers" },
-  { icon: UserCog, label: "客戶資料管理", path: "/customer-management" },
-  { icon: FileText, label: "訂單資料管理", path: "/order-management" },
-  { icon: MessageSquare, label: "AI 洞察", path: "/ai-chat" },
-  { icon: RefreshCw, label: "數據同步", path: "/sync" },
+const menuItems: { icon: any; label: string; path: string; adminOnly: boolean; permKey?: PermissionKey }[] = [
+  { icon: LayoutDashboard, label: "儀表板總覽", path: "/", adminOnly: false, permKey: "dashboard" },
+  { icon: TrendingUp, label: "銷售趨勢", path: "/trends", adminOnly: false, permKey: "dashboard" },
+  { icon: Filter, label: "銷售漏斗", path: "/funnel", adminOnly: false, permKey: "funnel" },
+  { icon: Users, label: "客戶分析", path: "/customers", adminOnly: false, permKey: "customer_analysis" },
+  { icon: UserCog, label: "客戶資料管理", path: "/customer-management", adminOnly: false, permKey: "customer_mgmt" },
+  { icon: FileText, label: "訂單資料管理", path: "/order-management", adminOnly: false, permKey: "order_mgmt" },
+  { icon: MessageSquare, label: "AI 洞察", path: "/ai-chat", adminOnly: false, permKey: "ai_chat" },
+  { icon: RefreshCw, label: "數據同步", path: "/sync", adminOnly: false, permKey: "data_sync" },
+  { icon: Shield, label: "使用者管理", path: "/user-management", adminOnly: true },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -118,7 +121,13 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
+  const { hasPermission, isAdmin } = usePermissions();
+  const visibleMenuItems = menuItems.filter(item => {
+    if (item.adminOnly) return isAdmin;
+    if (item.permKey) return hasPermission(item.permKey);
+    return true;
+  });
+  const activeMenuItem = visibleMenuItems.find(item => item.path === location) || menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -186,7 +195,7 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
+              {visibleMenuItems.map(item => {
                 const isActive = location === item.path;
                 return (
                   <SidebarMenuItem key={item.path}>

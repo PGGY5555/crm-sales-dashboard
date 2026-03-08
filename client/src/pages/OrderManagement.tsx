@@ -12,6 +12,7 @@ import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, Eye } f
 import { Link } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const SEARCH_FIELDS = [
   { value: "orderNumber", label: "訂單編號" },
@@ -40,6 +41,9 @@ type SearchFieldType = typeof SEARCH_FIELDS[number]["value"];
 
 export default function OrderManagement() {
   const utils = trpc.useUtils();
+  const { hasPermission } = usePermissions();
+  const canDelete = hasPermission("order_mgmt_delete");
+  const canExport = hasPermission("order_mgmt_export");
 
   // X-axis search
   const [searchField, setSearchField] = useState<SearchFieldType>("orderNumber");
@@ -215,7 +219,7 @@ export default function OrderManagement() {
           </p>
         </div>
         <div className="flex gap-2">
-          {selectedIds.size > 0 && (
+          {canDelete && selectedIds.size > 0 && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" size="sm" disabled={batchDeleteMutation.isPending}>
@@ -240,10 +244,12 @@ export default function OrderManagement() {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
-            <Download className="w-4 h-4 mr-2" />
-            {isExporting ? "匯出中..." : selectedIds.size > 0 ? `匯出 ${selectedIds.size} 筆` : "匯出 Excel"}
-          </Button>
+          {canExport && (
+            <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
+              <Download className="w-4 h-4 mr-2" />
+              {isExporting ? "匯出中..." : selectedIds.size > 0 ? `匯出 ${selectedIds.size} 筆` : "匯出 Excel"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -366,14 +372,16 @@ export default function OrderManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[40px]">
-                    <Checkbox
-                      checked={allCurrentSelected}
-                      onCheckedChange={toggleSelectAll}
-                      aria-label="全選"
-                      className={someCurrentSelected && !allCurrentSelected ? "opacity-50" : ""}
-                    />
-                  </TableHead>
+                  {canDelete && (
+                    <TableHead className="w-[40px]">
+                      <Checkbox
+                        checked={allCurrentSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="全選"
+                        className={someCurrentSelected && !allCurrentSelected ? "opacity-50" : ""}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead className="min-w-[120px]">訂單編號</TableHead>
                   <TableHead className="min-w-[60px]">詳情</TableHead>
                   <TableHead className="min-w-[90px]">訂單日期</TableHead>
@@ -407,13 +415,15 @@ export default function OrderManagement() {
                       : { text: "未出貨", cls: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" };
                     return (
                       <TableRow key={o.id} className={selectedIds.has(o.id) ? "bg-primary/5" : ""}>
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedIds.has(o.id)}
-                            onCheckedChange={() => toggleSelect(o.id)}
-                            aria-label={`選取 ${o.externalId}`}
-                          />
-                        </TableCell>
+                        {canDelete && (
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedIds.has(o.id)}
+                              onCheckedChange={() => toggleSelect(o.id)}
+                              aria-label={`選取 ${o.externalId}`}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell className="font-mono text-sm">{o.externalId || "-"}</TableCell>
                         <TableCell>
                           <Link href={`/order-detail/${o.id}`}>

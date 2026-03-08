@@ -27,7 +27,14 @@ import {
   getCustomerDetail,
   getOrderDetail,
   updateCustomer,
+  getAllUsers,
+  removeUser,
+  getUserPermissions,
+  saveUserPermissions,
+  checkUserPermission,
+  updateUserRole,
 } from "./db";
+import { PERMISSION_KEYS, type PermissionKey } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
 import { invokeLLM } from "./_core/llm";
@@ -340,6 +347,78 @@ export const appRouter = router({
         }
         return batchDeleteOrders(input.ids);
       }),
+  }),
+
+  /** User management (admin only) */
+  userMgmt: router({
+    /** List all users */
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+      }
+      return getAllUsers();
+    }),
+
+    /** Remove a user */
+    remove: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+        }
+        // Cannot remove yourself
+        if (input.userId === ctx.user.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "無法移除自己的帳號" });
+        }
+        return removeUser(input.userId);
+      }),
+
+    /** Update user role */
+    updateRole: protectedProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+        }
+        if (input.userId === ctx.user.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "無法修改自己的角色" });
+        }
+        return updateUserRole(input.userId, input.role);
+      }),
+
+    /** Get permissions for a user */
+    getPermissions: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+        }
+        return getUserPermissions(input.userId);
+      }),
+
+    /** Save permissions for a user */
+    savePermissions: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        permissions: z.record(z.string(), z.boolean()),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+        }
+        return saveUserPermissions(input.userId, input.permissions, ctx.user.id);
+      }),
+
+    /** Get my permissions (for current logged-in user) */
+    myPermissions: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role === "admin") {
+        // Admin has all permissions
+        const allPerms: Record<string, boolean> = {};
+        for (const key of PERMISSION_KEYS) allPerms[key] = true;
+        return allPerms;
+      }
+      return getUserPermissions(ctx.user.id);
+    }),
   }),
 
   /** AI chat for sales insights */

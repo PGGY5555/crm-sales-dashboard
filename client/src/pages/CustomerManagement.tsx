@@ -12,6 +12,7 @@ import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, Externa
 import { Link } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const SEARCH_FIELDS = [
   { value: "customerName", label: "顧客姓名" },
@@ -43,6 +44,9 @@ type SearchFieldType = typeof SEARCH_FIELDS[number]["value"];
 
 export default function CustomerManagement() {
   const utils = trpc.useUtils();
+  const { hasPermission } = usePermissions();
+  const canDelete = hasPermission("customer_mgmt_delete");
+  const canExport = hasPermission("customer_mgmt_export");
 
   // X-axis search
   const [searchField, setSearchField] = useState<SearchFieldType>("customerName");
@@ -279,7 +283,7 @@ export default function CustomerManagement() {
           </p>
         </div>
         <div className="flex gap-2">
-          {selectedIds.size > 0 && (
+          {canDelete && selectedIds.size > 0 && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" size="sm" disabled={batchDeleteMutation.isPending}>
@@ -304,10 +308,12 @@ export default function CustomerManagement() {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
-            <Download className="w-4 h-4 mr-2" />
-            {isExporting ? "匯出中..." : selectedIds.size > 0 ? `匯出 ${selectedIds.size} 筆` : "匯出 Excel"}
-          </Button>
+          {canExport && (
+            <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
+              <Download className="w-4 h-4 mr-2" />
+              {isExporting ? "匯出中..." : selectedIds.size > 0 ? `匯出 ${selectedIds.size} 筆` : "匯出 Excel"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -522,14 +528,16 @@ export default function CustomerManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[40px]">
-                    <Checkbox
-                      checked={allCurrentSelected}
-                      onCheckedChange={toggleSelectAll}
-                      aria-label="全選"
-                      className={someCurrentSelected && !allCurrentSelected ? "opacity-50" : ""}
-                    />
-                  </TableHead>
+                  {canDelete && (
+                    <TableHead className="w-[40px]">
+                      <Checkbox
+                        checked={allCurrentSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="全選"
+                        className={someCurrentSelected && !allCurrentSelected ? "opacity-50" : ""}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead className="min-w-[100px]">顧客姓名</TableHead>
                   <TableHead className="min-w-[120px]">電子信箱</TableHead>
                   <TableHead className="min-w-[100px]">手機</TableHead>
@@ -556,13 +564,15 @@ export default function CustomerManagement() {
                 ) : (
                   data.items.map((c) => (
                     <TableRow key={c.id} className={selectedIds.has(c.id) ? "bg-primary/5" : ""}>
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedIds.has(c.id)}
-                          onCheckedChange={() => toggleSelect(c.id)}
-                          aria-label={`選取 ${c.name}`}
-                        />
-                      </TableCell>
+                      {canDelete && (
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.has(c.id)}
+                            onCheckedChange={() => toggleSelect(c.id)}
+                            aria-label={`選取 ${c.name}`}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell className="font-medium">
                         <Link href={`/customer/${c.id}`} className="text-primary hover:underline inline-flex items-center gap-1">
                           {c.name || "-"}

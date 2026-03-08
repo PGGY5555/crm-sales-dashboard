@@ -15,6 +15,7 @@ import CustomerManagement from "./pages/CustomerManagement";
 import OrderManagement from "./pages/OrderManagement";
 import CustomerDetail from "./pages/CustomerDetail";
 import OrderDetail from "./pages/OrderDetail";
+import UserManagement from "./pages/UserManagement";
 
 function Router() {
   return (
@@ -31,6 +32,7 @@ function Router() {
         <Route path={"/customer/:id"} component={CustomerDetail} />
         <Route path={"/customer-detail/:id"} component={CustomerDetail} />
         <Route path={"/order-detail/:id"} component={OrderDetail} />
+        <Route path={"/user-management"} component={UserManagement} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

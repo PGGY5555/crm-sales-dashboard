@@ -1,6 +1,7 @@
 import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, customers, orders, syncLogs, settings, orderItems, products } from "../drizzle/schema";
+import { InsertUser, users, customers, orders, syncLogs, settings, orderItems, products, userPermissions } from "../drizzle/schema";
+import { getDefaultPermissions, getAllPermissions, type PermissionKey } from "../shared/permissions";
 import { encrypt, decrypt, maskToken } from "./crypto";
 import { ENV } from './_core/env';
 
@@ -86,6 +87,80 @@ export async function getUserByOpenId(openId: string) {
 
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+// ===== User Management & Permissions =====
+
+/** Get all users list */
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.select({
+    id: users.id,
+    openId: users.openId,
+    name: users.name,
+    email: users.email,
+    role: users.role,
+    loginMethod: users.loginMethod,
+    createdAt: users.createdAt,
+    lastSignedIn: users.lastSignedIn,
+  }).from(users).orderBy(desc(users.lastSignedIn));
+  return result;
+}
+
+/** Remove a user (cannot remove admin/owner) */
+export async function removeUser(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Delete permissions first
+  await db.delete(userPermissions).where(eq(userPermissions.userId, userId));
+  // Delete user
+  await db.delete(users).where(eq(users.id, userId));
+  return { success: true };
+}
+
+/** Get user permissions by userId */
+export async function getUserPermissions(userId: number): Promise<Record<PermissionKey, boolean>> {
+  const db = await getDb();
+  if (!db) return getDefaultPermissions();
+  const result = await db.select().from(userPermissions).where(eq(userPermissions.userId, userId)).limit(1);
+  if (result.length === 0) return getDefaultPermissions();
+  // Merge with defaults to handle new permission keys
+  const stored = (result[0].permissions as Record<string, boolean>) || {};
+  const defaults = getDefaultPermissions();
+  return { ...defaults, ...stored } as Record<PermissionKey, boolean>;
+}
+
+/** Save user permissions */
+export async function saveUserPermissions(userId: number, permissions: Record<string, boolean>, updatedBy: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(userPermissions).values({
+    userId,
+    permissions,
+    updatedBy,
+  }).onDuplicateKeyUpdate({
+    set: {
+      permissions,
+      updatedBy,
+    },
+  });
+  return { success: true };
+}
+
+/** Check if a user has a specific permission. Admin always has all permissions. */
+export async function checkUserPermission(userId: number, userRole: string, permissionKey: PermissionKey): Promise<boolean> {
+  if (userRole === "admin") return true;
+  const perms = await getUserPermissions(userId);
+  return perms[permissionKey] === true;
+}
+
+/** Update user role */
+export async function updateUserRole(userId: number, role: "user" | "admin") {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set({ role }).where(eq(users.id, userId));
+  return { success: true };
 }
 
 // ===== Dashboard Query Helpers =====
