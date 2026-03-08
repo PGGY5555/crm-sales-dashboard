@@ -43,6 +43,7 @@ interface CustomerRow {
   "自訂1"?: string;
   "自訂2"?: string;
   "自訂3"?: string;
+  "SF出貨日"?: string;
 }
 
 interface OrderRow {
@@ -370,6 +371,13 @@ export async function importCustomersFromExcel(buffer: Buffer, jobId?: number): 
             const custom2 = row["自訂2"]?.trim() || null;
             const custom3 = row["自訂3"]?.trim() || null;
 
+            let sfShippedAt: Date | null = null;
+            const sfShippedStr = row["SF出貨日"]?.trim();
+            if (sfShippedStr) {
+              const parsed = parseDate(sfShippedStr);
+              if (parsed) sfShippedAt = parsed;
+            }
+
             let registeredAt: Date | null = null;
             const regTimeStr = (row["註冊時間"] || row["註冊日期"])?.trim();
             if (regTimeStr) {
@@ -379,10 +387,10 @@ export async function importCustomersFromExcel(buffer: Buffer, jobId?: number): 
 
             const rawJson = escJson(row);
 
-            return `(${esc(extId)}, ${esc(name)}, ${esc(email)}, ${esc(phone)}, ${escDate(registeredAt)}, 0, '0', ${esc(birthday)}, ${esc(tags)}, ${esc(memberLevel)}, ${esc(credits)}, ${esc(recipientName)}, ${esc(recipientPhone)}, ${esc(recipientEmail)}, ${esc(notes)}, ${esc(blacklisted)}, ${esc(lineUid)}, ${esc(note1)}, ${esc(note2)}, ${esc(custom1)}, ${esc(custom2)}, ${esc(custom3)}, ${rawJson})`;
+            return `(${esc(extId)}, ${esc(name)}, ${esc(email)}, ${esc(phone)}, ${escDate(registeredAt)}, 0, '0', ${esc(birthday)}, ${esc(tags)}, ${esc(memberLevel)}, ${esc(credits)}, ${esc(recipientName)}, ${esc(recipientPhone)}, ${esc(recipientEmail)}, ${esc(notes)}, ${esc(blacklisted)}, ${esc(lineUid)}, ${esc(note1)}, ${esc(note2)}, ${esc(custom1)}, ${esc(custom2)}, ${esc(custom3)}, ${escDate(sfShippedAt)}, ${rawJson})`;
           }).join(",\n");
 
-          const bulkSql = `INSERT INTO customers (externalId, name, email, phone, registeredAt, totalOrders, totalSpent, birthday, tags, memberLevel, credits, recipientName, recipientPhone, recipientEmail, notes, blacklisted, lineUid, note1, note2, custom1, custom2, custom3, rawData)
+          const bulkSql = `INSERT INTO customers (externalId, name, email, phone, registeredAt, totalOrders, totalSpent, birthday, tags, memberLevel, credits, recipientName, recipientPhone, recipientEmail, notes, blacklisted, lineUid, note1, note2, custom1, custom2, custom3, sfShippedAt, rawData)
 VALUES ${values}
 ON DUPLICATE KEY UPDATE
   name = IF(VALUES(name) IS NOT NULL AND VALUES(name) != '', VALUES(name), name),
@@ -403,6 +411,7 @@ ON DUPLICATE KEY UPDATE
   custom1 = IF(VALUES(custom1) IS NOT NULL AND VALUES(custom1) != '', VALUES(custom1), custom1),
   custom2 = IF(VALUES(custom2) IS NOT NULL AND VALUES(custom2) != '', VALUES(custom2), custom2),
   custom3 = IF(VALUES(custom3) IS NOT NULL AND VALUES(custom3) != '', VALUES(custom3), custom3),
+  sfShippedAt = IF(VALUES(sfShippedAt) IS NOT NULL, VALUES(sfShippedAt), sfShippedAt),
   rawData = VALUES(rawData)`;
 
           await db.execute(sql.raw(bulkSql));
@@ -440,6 +449,7 @@ ON DUPLICATE KEY UPDATE
                 custom1: row["自訂1"]?.trim() || null,
                 custom2: row["自訂2"]?.trim() || null,
                 custom3: row["自訂3"]?.trim() || null,
+                sfShippedAt: (() => { const s = row["SF出貨日"]?.trim(); if (!s) return null; return parseDate(s); })(),
                 rawData: row,
               }).onDuplicateKeyUpdate({
                 set: {
@@ -461,6 +471,7 @@ ON DUPLICATE KEY UPDATE
                   custom1: row["自訂1"]?.trim() ? row["自訂1"].trim() : sql`customers.custom1`,
                   custom2: row["自訂2"]?.trim() ? row["自訂2"].trim() : sql`customers.custom2`,
                   custom3: row["自訂3"]?.trim() ? row["自訂3"].trim() : sql`customers.custom3`,
+                  sfShippedAt: (() => { const s = row["SF出貨日"]?.trim(); if (!s) return sql`customers.sfShippedAt`; return parseDate(s) || sql`customers.sfShippedAt`; })(),
                   rawData: row,
                 },
               });

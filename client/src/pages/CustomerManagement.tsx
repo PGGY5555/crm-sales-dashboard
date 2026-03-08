@@ -74,6 +74,8 @@ export default function CustomerManagement() {
   const [selectedLifecycles, setSelectedLifecycles] = useState<string[]>([]);
   const [blacklisted, setBlacklisted] = useState("");
   const [lineUid, setLineUid] = useState("");
+  const [sfShippedFrom, setSfShippedFrom] = useState("");
+  const [sfShippedTo, setSfShippedTo] = useState("");
 
   const [page, setPage] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
@@ -120,11 +122,13 @@ export default function CustomerManagement() {
     if (lastPurchaseAmountOp && lastPurchaseAmountValue) { filters.lastPurchaseAmountOp = lastPurchaseAmountOp; filters.lastPurchaseAmountValue = parseFloat(lastPurchaseAmountValue); }
     if (lastShipmentFrom) filters.lastShipmentFrom = new Date(lastShipmentFrom);
     if (lastShipmentTo) filters.lastShipmentTo = new Date(lastShipmentTo + "T23:59:59");
+    if (sfShippedFrom) filters.sfShippedFrom = new Date(sfShippedFrom);
+    if (sfShippedTo) filters.sfShippedTo = new Date(sfShippedTo + "T23:59:59");
     if (selectedLifecycles.length > 0) filters.lifecycles = selectedLifecycles;
     if (blacklisted) filters.blacklisted = blacklisted;
     if (lineUid.trim()) filters.lineUid = lineUid.trim();
     return filters;
-  }, [page, searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, selectedLifecycles, blacklisted, lineUid]);
+  }, [page, searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, sfShippedFrom, sfShippedTo, selectedLifecycles, blacklisted, lineUid]);
 
   const queryFilters = useMemo(() => buildFilters(), [buildFilters]);
 
@@ -152,6 +156,8 @@ export default function CustomerManagement() {
     setSelectedLifecycles([]);
     setBlacklisted("");
     setLineUid("");
+    setSfShippedFrom("");
+    setSfShippedTo("");
     setPage(0);
   };
 
@@ -221,6 +227,7 @@ export default function CustomerManagement() {
       "最後購買日期": c.lastPurchaseDate ? new Date(c.lastPurchaseDate).toLocaleDateString("zh-TW") : "",
       "最後消費金額": c.lastPurchaseAmount || "",
       "最後出貨日期": c.lastShipmentAt ? new Date(c.lastShipmentAt).toLocaleDateString("zh-TW") : "",
+      "SF出貨日": c.sfShippedAt ? new Date(c.sfShippedAt).toLocaleDateString("zh-TW") : "",
       "生命週期": c.lifecycle || "",
       "收件人姓名": c.recipientName || "",
       "收件人手機": c.recipientPhone || "",
@@ -266,6 +273,7 @@ export default function CustomerManagement() {
     creditsOp && creditsValue, totalSpentOp && totalSpentValue,
     totalOrdersOp && totalOrdersValue, lastPurchaseFrom, lastPurchaseTo,
     lastPurchaseAmountOp && lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo,
+    sfShippedFrom, sfShippedTo,
     selectedLifecycles.length > 0, blacklisted, lineUid,
   ].filter(Boolean).length;
 
@@ -394,6 +402,14 @@ export default function CustomerManagement() {
                   <Input type="date" value={lastShipmentFrom} onChange={e => { setLastShipmentFrom(e.target.value); setPage(0); }} className="text-sm" />
                   <span className="text-muted-foreground text-sm">至</span>
                   <Input type="date" value={lastShipmentTo} onChange={e => { setLastShipmentTo(e.target.value); setPage(0); }} className="text-sm" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">SF出貨日區間</label>
+                <div className="flex gap-2 items-center">
+                  <Input type="date" value={sfShippedFrom} onChange={e => { setSfShippedFrom(e.target.value); setPage(0); }} className="text-sm" />
+                  <span className="text-muted-foreground text-sm">至</span>
+                  <Input type="date" value={sfShippedTo} onChange={e => { setSfShippedTo(e.target.value); setPage(0); }} className="text-sm" />
                 </div>
               </div>
             </div>

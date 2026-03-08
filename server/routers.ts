@@ -268,6 +268,8 @@ export const appRouter = router({
         lifecycles: z.array(z.string()).optional(),
         blacklisted: z.string().optional(),
         lineUid: z.string().optional(),
+        sfShippedFrom: z.date().optional(),
+        sfShippedTo: z.date().optional(),
         page: z.number().default(0),
         limit: z.number().default(50),
       }).optional())
@@ -299,6 +301,8 @@ export const appRouter = router({
         lifecycles: z.array(z.string()).optional(),
         blacklisted: z.string().optional(),
         lineUid: z.string().optional(),
+        sfShippedFrom: z.date().optional(),
+        sfShippedTo: z.date().optional(),
       }).optional())
       .query(async ({ input }) => {
         return getCustomerManagementExport(input ?? {});

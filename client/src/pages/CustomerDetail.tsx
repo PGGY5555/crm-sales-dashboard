@@ -435,6 +435,10 @@ export default function CustomerDetail() {
                 <span className="text-sm text-muted-foreground">最後出貨日期</span>
                 <span className="text-sm">{c.lastShipmentAt ? new Date(c.lastShipmentAt).toLocaleDateString("zh-TW") : "-"}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">SF出貨日</span>
+                <span className="text-sm">{c.sfShippedAt ? new Date(c.sfShippedAt).toLocaleDateString("zh-TW") : "-"}</span>
+              </div>
             </div>
           </CardContent>
         </Card>

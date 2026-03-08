@@ -92,6 +92,13 @@
       "when": 1772961131922,
       "tag": "0012_daily_wonder_man",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1772985862965,
+      "tag": "0013_serious_lockjaw",
+      "breakpoints": true
     }
   ]
 }

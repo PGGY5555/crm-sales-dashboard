@@ -254,6 +254,14 @@ export async function importCustomersChunk(jsonUrl: string, jobId: number, offse
           const custom2 = (typeof row["自訂2"] === "string" ? row["自訂2"].trim() : "") || null;
           const custom3 = (typeof row["自訂3"] === "string" ? row["自訂3"].trim() : "") || null;
 
+          let sfShippedAt: Date | null = null;
+          const sfShippedRaw = row["SF出貨日"];
+          const sfShippedStr = typeof sfShippedRaw === "string" ? sfShippedRaw.trim() : "";
+          if (sfShippedStr) {
+            const parsed = parseDate(sfShippedStr);
+            if (parsed) sfShippedAt = parsed;
+          }
+
           let registeredAt: Date | null = null;
           const regTimeRaw = row["註冊時間"] || row["註冊日期"];
           const regTimeStr = typeof regTimeRaw === "string" ? regTimeRaw.trim() : "";
@@ -262,10 +270,10 @@ export async function importCustomersChunk(jsonUrl: string, jobId: number, offse
             if (parsed) registeredAt = parsed;
           }
 
-          return `(${esc(extId)}, ${esc(name)}, ${esc(email)}, ${esc(phone)}, ${escDate(registeredAt)}, 0, '0', ${esc(birthday)}, ${esc(tags)}, ${esc(memberLevel)}, ${esc(credits)}, ${esc(recipientName)}, ${esc(recipientPhone)}, ${esc(recipientEmail)}, ${esc(notes)}, ${esc(blacklisted)}, ${esc(lineUid)}, ${esc(note1)}, ${esc(note2)}, ${esc(custom1)}, ${esc(custom2)}, ${esc(custom3)}, ${escJson(row)})`;
+          return `(${esc(extId)}, ${esc(name)}, ${esc(email)}, ${esc(phone)}, ${escDate(registeredAt)}, 0, '0', ${esc(birthday)}, ${esc(tags)}, ${esc(memberLevel)}, ${esc(credits)}, ${esc(recipientName)}, ${esc(recipientPhone)}, ${esc(recipientEmail)}, ${esc(notes)}, ${esc(blacklisted)}, ${esc(lineUid)}, ${esc(note1)}, ${esc(note2)}, ${esc(custom1)}, ${esc(custom2)}, ${esc(custom3)}, ${escDate(sfShippedAt)}, ${escJson(row)})`;
         }).join(",\n");
 
-        const bulkSql = `INSERT INTO customers (externalId, name, email, phone, registeredAt, totalOrders, totalSpent, birthday, tags, memberLevel, credits, recipientName, recipientPhone, recipientEmail, notes, blacklisted, lineUid, note1, note2, custom1, custom2, custom3, rawData)
+        const bulkSql = `INSERT INTO customers (externalId, name, email, phone, registeredAt, totalOrders, totalSpent, birthday, tags, memberLevel, credits, recipientName, recipientPhone, recipientEmail, notes, blacklisted, lineUid, note1, note2, custom1, custom2, custom3, sfShippedAt, rawData)
 VALUES ${values}
 ON DUPLICATE KEY UPDATE
   name = IF(VALUES(name) IS NOT NULL AND VALUES(name) != '', VALUES(name), name),
@@ -286,6 +294,7 @@ ON DUPLICATE KEY UPDATE
   custom1 = IF(VALUES(custom1) IS NOT NULL AND VALUES(custom1) != '', VALUES(custom1), custom1),
   custom2 = IF(VALUES(custom2) IS NOT NULL AND VALUES(custom2) != '', VALUES(custom2), custom2),
   custom3 = IF(VALUES(custom3) IS NOT NULL AND VALUES(custom3) != '', VALUES(custom3), custom3),
+  sfShippedAt = IF(VALUES(sfShippedAt) IS NOT NULL, VALUES(sfShippedAt), sfShippedAt),
   rawData = VALUES(rawData)`;
 
         await db.execute(sql.raw(bulkSql));

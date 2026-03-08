@@ -58,6 +58,8 @@ export const customers = mysqlTable("customers", {
   custom3: text("custom3"),
   /** LINE UID */
   lineUid: varchar("lineUid", { length: 255 }),
+  /** SF出貨日 */
+  sfShippedAt: timestamp("sfShippedAt"),
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

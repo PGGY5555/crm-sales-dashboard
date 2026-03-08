@@ -898,6 +898,8 @@ export interface CustomerManagementFilters {
   lifecycles?: string[];
   blacklisted?: string; // '是' or '否'
   lineUid?: string; // text search
+  sfShippedFrom?: Date;
+  sfShippedTo?: Date;
   // Pagination
   page?: number;
   limit?: number;
@@ -994,6 +996,9 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
   if (filters.lineUid) {
     conditions.push(like(customers.lineUid, `%${filters.lineUid}%`));
   }
+
+  if (filters.sfShippedFrom) conditions.push(gte(customers.sfShippedAt, filters.sfShippedFrom));
+  if (filters.sfShippedTo) conditions.push(lte(customers.sfShippedAt, filters.sfShippedTo));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters.page ?? 0;
