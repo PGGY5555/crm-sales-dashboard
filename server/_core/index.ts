@@ -32,7 +32,7 @@ import { parse as parseCookieHeader } from "cookie";
 import { getUserByOpenId, logAudit } from "../db";
 import { getDb } from "../db";
 import { importJobs, syncLogs } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -447,6 +447,70 @@ async function startServer() {
             description: `匯入${typeLabels[job.fileType] || job.fileType}完成`,
             details: { jobId, successRows, errorRows },
           }).catch(() => {});
+        }
+      }
+
+      // After order import completes, update customer stats
+      if (db) {
+        const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+        if (job && (job.fileType === 'orders' || job.fileType === 'logistics')) {
+          console.log('[Complete Job] Updating customer stats from orders...');
+          try {
+            // Use efficient SQL aggregate to update all customer stats at once
+            await db.execute(sql.raw(`
+              UPDATE customers c
+              INNER JOIN (
+                SELECT 
+                  customerId,
+                  COUNT(*) as totalOrders,
+                  SUM(CAST(total AS DECIMAL(12,2))) as totalSpent,
+                  MAX(orderDate) as lastPurchaseDate,
+                  MAX(shippedAt) as lastShipmentAt
+                FROM orders
+                WHERE customerId IS NOT NULL AND orderStatus != -1
+                GROUP BY customerId
+              ) o ON c.id = o.customerId
+              SET 
+                c.totalOrders = o.totalOrders,
+                c.totalSpent = o.totalSpent,
+                c.lastPurchaseDate = o.lastPurchaseDate,
+                c.lastShipmentAt = o.lastShipmentAt
+            `));
+
+            // Update lastPurchaseAmount separately (need the order with max orderDate)
+            await db.execute(sql.raw(`
+              UPDATE customers c
+              INNER JOIN (
+                SELECT o1.customerId, o1.total as lastAmount
+                FROM orders o1
+                INNER JOIN (
+                  SELECT customerId, MAX(orderDate) as maxDate
+                  FROM orders
+                  WHERE customerId IS NOT NULL AND orderStatus != -1
+                  GROUP BY customerId
+                ) o2 ON o1.customerId = o2.customerId AND o1.orderDate = o2.maxDate
+                WHERE o1.orderStatus != -1
+              ) latest ON c.id = latest.customerId
+              SET c.lastPurchaseAmount = latest.lastAmount
+            `));
+
+            // Update lifecycle classification (NASLDO)
+            await db.execute(sql.raw(`
+              UPDATE customers SET lifecycle = CASE
+                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'N'
+                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'A'
+                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'S'
+                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'L'
+                WHEN lastShipmentAt IS NOT NULL AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 365 DAY) THEN 'D'
+                ELSE 'O'
+              END
+              WHERE totalOrders > 0
+            `));
+
+            console.log('[Complete Job] Customer stats and lifecycle updated successfully');
+          } catch (statsErr: any) {
+            console.error('[Complete Job] Stats update error:', statsErr.message);
+          }
         }
       }
 

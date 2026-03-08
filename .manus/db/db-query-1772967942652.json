@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE customers c\nINNER JOIN (\n  SELECT o1.customerId, o1.total as lastAmount\n  FROM orders o1\n  INNER JOIN (\n    SELECT customerId, MAX(orderDate) as maxDate\n    FROM orders\n    WHERE customerId IS NOT NULL AND orderStatus != -1\n    GROUP BY customerId\n  ) o2 ON o1.customerId = o2.customerId AND o1.orderDate = o2.maxDate\n  WHERE o1.orderStatus != -1\n) latest ON c.id = latest.customerId\nSET c.lastPurchaseAmount = latest.lastAmount",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE customers c\nINNER JOIN (\n  SELECT o1.customerId, o1.total as lastAmount\n  FROM orders o1\n  INNER JOIN (\n    SELECT customerId, MAX(orderDate) as maxDate\n    FROM orders\n    WHERE customerId IS NOT NULL AND orderStatus != -1\n    GROUP BY customerId\n  ) o2 ON o1.customerId = o2.customerId AND o1.orderDate = o2.maxDate\n  WHERE o1.orderStatus != -1\n) latest ON c.id = latest.customerId\nSET c.lastPurchaseAmount = latest.lastAmount",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1790
+}

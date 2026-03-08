@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE customers c\nINNER JOIN (\n  SELECT \n    customerId,\n    COUNT(*) as totalOrders,\n    SUM(CAST(total AS DECIMAL(12,2))) as totalSpent,\n    MAX(orderDate) as lastPurchaseDate,\n    MAX(shippedAt) as lastShipmentAt\n  FROM orders\n  WHERE customerId IS NOT NULL AND orderStatus != -1\n  GROUP BY customerId\n) o ON c.id = o.customerId\nSET \n  c.totalOrders = o.totalOrders,\n  c.totalSpent = o.totalSpent,\n  c.lastPurchaseDate = o.lastPurchaseDate,\n  c.lastShipmentAt = o.lastShipmentAt",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE customers c\nINNER JOIN (\n  SELECT \n    customerId,\n    COUNT(*) as totalOrders,\n    SUM(CAST(total AS DECIMAL(12,2))) as totalSpent,\n    MAX(orderDate) as lastPurchaseDate,\n    MAX(shippedAt) as lastShipmentAt\n  FROM orders\n  WHERE customerId IS NOT NULL AND orderStatus != -1\n  GROUP BY customerId\n) o ON c.id = o.customerId\nSET \n  c.totalOrders = o.totalOrders,\n  c.totalSpent = o.totalSpent,\n  c.lastPurchaseDate = o.lastPurchaseDate,\n  c.lastShipmentAt = o.lastShipmentAt",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1799
+}

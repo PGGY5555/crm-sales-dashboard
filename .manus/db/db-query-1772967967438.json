@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE customers SET lifecycle = CASE\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'N'\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'A'\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'S'\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'L'\n  WHEN lastShipmentAt IS NOT NULL AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 365 DAY) THEN 'D'\n  WHEN registeredAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND (lastShipmentAt IS NULL OR totalOrders = 0) THEN 'O'\n  ELSE 'O'\nEND\nWHERE totalOrders > 0 OR registeredAt IS NOT NULL",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE customers SET lifecycle = CASE\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'N'\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'A'\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'S'\n  WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'L'\n  WHEN lastShipmentAt IS NOT NULL AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 365 DAY) THEN 'D'\n  WHEN registeredAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND (lastShipmentAt IS NULL OR totalOrders = 0) THEN 'O'\n  ELSE 'O'\nEND\nWHERE totalOrders > 0 OR registeredAt IS NOT NULL",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2739
+}
