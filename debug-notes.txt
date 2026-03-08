@@ -1,0 +1,11 @@
+Key finding from browser console log:
+- The "Unexpected token '<'" error is from [API Query Error] - a tRPC query, NOT from the /api/upload/excel endpoint
+- The error message says: "Unexpected token '<', \"<!doctype \"... is not valid JSON"
+- This is a TRPCClientError, meaning a tRPC query returned HTML instead of JSON
+- Timestamp: 2026-03-08T03:42:09.602Z (earlier, before our fix was deployed)
+- The actual Excel upload uses fetch() directly, not tRPC
+
+Possible causes:
+1. The published version may not have the latest code (user is on production domain)
+2. The tRPC error could be from importJob.status or importJob.list queries
+3. Need to check if the production build works correctly

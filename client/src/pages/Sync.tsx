@@ -205,9 +205,9 @@ export default function Sync() {
 
     const poll = async () => {
       try {
-        const response = await fetch(`/api/trpc/importJob.status?input=${encodeURIComponent(JSON.stringify({ jobId }))}`);
+        const response = await fetch(`/api/trpc/importJob.status?input=${encodeURIComponent(JSON.stringify({ json: { jobId } }))}`);
         const data = await response.json();
-        const job = data?.result?.data;
+        const job = data?.result?.data?.json;
 
         if (!job) return;
 

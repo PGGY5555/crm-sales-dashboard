@@ -240,6 +240,17 @@ export async function createImportJob(
   return Number(result.insertId);
 }
 
+// ===== Update job total rows (after background parsing) =====
+export async function updateJobTotalRows(jobId: number, totalRows: number) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.update(importJobs).set({ totalRows }).where(eq(importJobs.id, jobId));
+  } catch (err) {
+    console.error("[ImportJob] Failed to update totalRows:", err);
+  }
+}
+
 // ===== Get import job status =====
 export async function getImportJobStatus(jobId: number) {
   const db = await getDb();
