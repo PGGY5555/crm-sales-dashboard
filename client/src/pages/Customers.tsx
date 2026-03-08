@@ -4,7 +4,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useMemo } from "react";
+import { toast } from "sonner";
 import {
   Search,
   ChevronLeft,
@@ -15,6 +18,8 @@ import {
   CalendarClock,
   Repeat,
   TrendingUp,
+  RefreshCw,
+  CalendarDays,
 } from "lucide-react";
 import {
   PieChart,
@@ -33,18 +38,20 @@ import {
 } from "recharts";
 
 const LIFECYCLE_OPTIONS = [
-  { value: "N", label: "N 新鮮客", color: "#6366f1", desc: "半年內買一次" },
-  { value: "A", label: "A 活躍客", color: "#22c55e", desc: "半年內買一次以上" },
-  { value: "S", label: "S 沉睡客", color: "#f59e0b", desc: "半年內沒買，一年內買一次以上" },
-  { value: "L", label: "L 流失客", color: "#ef4444", desc: "半年內沒買，一年內僅買一次" },
-  { value: "D", label: "D 封存客", color: "#6b7280", desc: "一年內都沒買" },
-  { value: "O", label: "O 機會客", color: "#06b6d4", desc: "一年內沒買但有一年內註冊" },
+  { value: "N", label: "N 新鮮客", color: "#6366f1", desc: "180天內出貨僅1次" },
+  { value: "A", label: "A 活躍客", color: "#22c55e", desc: "180天內出貨2次以上" },
+  { value: "S", label: "S 沉睡客", color: "#f59e0b", desc: "180-365天區間出貨2次以上" },
+  { value: "L", label: "L 流失客", color: "#ef4444", desc: "180-365天區間僅出貨1次" },
+  { value: "D", label: "D 封存客", color: "#6b7280", desc: "超過365天無出貨" },
+  { value: "O", label: "O 機會客", color: "#06b6d4", desc: "超過365天無出貨但註冊365天內" },
 ];
 
 export default function Customers() {
   const [selectedLifecycles, setSelectedLifecycles] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [referenceDate, setReferenceDate] = useState<Date>(new Date());
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   const queryInput = useMemo(() => ({
     page,
@@ -57,6 +64,8 @@ export default function Customers() {
     lifecycles: selectedLifecycles.length > 0 ? selectedLifecycles : undefined,
   }), [selectedLifecycles]);
 
+  const utils = trpc.useUtils();
+
   const { data: customerData, isLoading: customersLoading } =
     trpc.dashboard.customers.useQuery(queryInput);
 
@@ -68,6 +77,25 @@ export default function Customers() {
 
   const { data: registrationTrend, isLoading: trendLoading } =
     trpc.dashboard.customerRegistrationTrend.useQuery(lifecycleFilter);
+
+  const recalculateMutation = trpc.dashboard.recalculateLifecycle.useMutation({
+    onSuccess: (result) => {
+      toast.success(`生命週期重算完成`, {
+        description: `共更新 ${result.updated.toLocaleString()} 筆客戶。N:${result.distribution.N} A:${result.distribution.A} S:${result.distribution.S} L:${result.distribution.L} D:${result.distribution.D} O:${result.distribution.O}`,
+        duration: 8000,
+      });
+      // Invalidate all dashboard queries to refresh data
+      utils.dashboard.invalidate();
+    },
+    onError: (error) => {
+      toast.error("重算失敗", { description: error.message });
+    },
+  });
+
+  const handleRecalculate = () => {
+    if (recalculateMutation.isPending) return;
+    recalculateMutation.mutate({ referenceDate });
+  };
 
   const toggleLifecycle = (val: string) => {
     setSelectedLifecycles((prev) =>
@@ -99,13 +127,70 @@ export default function Customers() {
     return `$${val.toFixed(0)}`;
   };
 
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString("zh-TW", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">客戶分析</h1>
-        <p className="text-muted-foreground mt-1">
-          客戶生命週期分類、回購天數與詳細資料
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">客戶分析</h1>
+          <p className="text-muted-foreground mt-1">
+            客戶生命週期分類、回購天數與詳細資料
+          </p>
+        </div>
+
+        {/* Recalculate Lifecycle Controls */}
+        <Card className="border-dashed">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-muted-foreground">起算日期</span>
+                <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-2 text-sm font-normal"
+                    >
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      {formatDate(referenceDate)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar
+                      mode="single"
+                      selected={referenceDate}
+                      onSelect={(date) => {
+                        if (date) {
+                          setReferenceDate(date);
+                          setCalendarOpen(false);
+                        }
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <Button
+                size="sm"
+                className="h-8 gap-2"
+                onClick={handleRecalculate}
+                disabled={recalculateMutation.isPending}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${recalculateMutation.isPending ? "animate-spin" : ""}`} />
+                {recalculateMutation.isPending ? "計算中..." : "重算生命週期"}
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              以起算日期為基準，往前推 180 天 / 365 天重新分類所有客戶
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Stats Cards */}

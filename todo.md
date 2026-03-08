@@ -113,3 +113,8 @@
 - [x] 修改：客戶分析列表依最後出貨日排序（近到舊）
 - [x] 修復：客戶註冊趨勢面積圖 SQL 錯誤（TiDB only_full_group_by 模式與 Drizzle ORM DATE_FORMAT 不相容，改用 raw SQL）
 - [x] 修復：客戶檔案匯入時「註冊日期」未寫入成功（2021_20260308-1 和 2021_20260308-2 兩個批次）——根因：新批次欄位名為「註冊日期」而非「註冊時間」，已修復匯入邏輯並補上 56,320 筆資料
+- [x] 功能：修改 classifyCustomer 函數，改用區間內訂單數（ordersInSixMonths、ordersInSixToYear）
+- [x] 功能：新增手動重算生命週期 tRPC 端點（recalculateLifecycle），接收起算日期，批次計算全部客戶
+- [x] 功能：修改匯入程式（excelImport）改用新分類邏輯（excelImportChunked 和 batchImport 未實際呼叫 classifyCustomer，無需修改）
+- [x] 功能：客戶分析頁面新增起算日期選擇器 + 重算生命週期按鈕 + 進度/結果提示
+- [x] 功能：重算操作記錄到操作日誌（auditLog）

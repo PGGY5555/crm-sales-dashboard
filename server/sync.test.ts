@@ -6,65 +6,74 @@ describe("classifyCustomer", () => {
   const oneDay = 24 * 60 * 60 * 1000;
   const sixMonthsMs = 180 * oneDay;
   const oneYearMs = 365 * oneDay;
+  const refDate = new Date(now);
 
-  it("N 新鮮客：半年內出貨，僅買一次", () => {
-    const lastShipment = new Date(now - 30 * oneDay); // 30 days ago
-    expect(classifyCustomer(lastShipment, 1, null)).toBe("N");
-  });
+  // New signature: classifyCustomer(lastShipmentAt, registeredAt, ordersInSixMonths, ordersInSixToYear, referenceDate?)
 
-  it("A 活躍客：半年內出貨，買一次以上", () => {
+  it("N 新鮮客：半年內出貨，180天內僅出貨1次", () => {
     const lastShipment = new Date(now - 30 * oneDay);
-    expect(classifyCustomer(lastShipment, 3, null)).toBe("A");
+    expect(classifyCustomer(lastShipment, null, 1, 0, refDate)).toBe("N");
   });
 
-  it("A 活躍客：半年內出貨，買兩次", () => {
+  it("A 活躍客：半年內出貨，180天內出貨2次以上", () => {
+    const lastShipment = new Date(now - 30 * oneDay);
+    expect(classifyCustomer(lastShipment, null, 3, 0, refDate)).toBe("A");
+  });
+
+  it("A 活躍客：半年內出貨，180天內出貨2次", () => {
     const lastShipment = new Date(now - 100 * oneDay);
-    expect(classifyCustomer(lastShipment, 2, null)).toBe("A");
+    expect(classifyCustomer(lastShipment, null, 2, 0, refDate)).toBe("A");
   });
 
-  it("S 沉睡客：半年到一年內出貨，買一次以上", () => {
-    const lastShipment = new Date(now - 200 * oneDay); // ~6.7 months
-    expect(classifyCustomer(lastShipment, 5, null)).toBe("S");
+  it("S 沉睡客：半年到一年內出貨，180-365天區間出貨2次以上", () => {
+    const lastShipment = new Date(now - 200 * oneDay);
+    expect(classifyCustomer(lastShipment, null, 0, 5, refDate)).toBe("S");
   });
 
-  it("L 流失客：半年到一年內出貨，僅買一次", () => {
-    const lastShipment = new Date(now - 250 * oneDay); // ~8.3 months
-    expect(classifyCustomer(lastShipment, 1, null)).toBe("L");
+  it("L 流失客：半年到一年內出貨，180-365天區間僅出貨1次", () => {
+    const lastShipment = new Date(now - 250 * oneDay);
+    expect(classifyCustomer(lastShipment, null, 0, 1, refDate)).toBe("L");
   });
 
   it("D 封存客：一年內都沒買，且沒有一年內註冊", () => {
-    const lastShipment = new Date(now - 400 * oneDay); // >1 year
-    expect(classifyCustomer(lastShipment, 2, null)).toBe("D");
+    const lastShipment = new Date(now - 400 * oneDay);
+    expect(classifyCustomer(lastShipment, null, 0, 0, refDate)).toBe("D");
   });
 
   it("D 封存客：沒有出貨記錄，也沒有一年內註冊", () => {
-    expect(classifyCustomer(null, 0, null)).toBe("D");
+    expect(classifyCustomer(null, null, 0, 0, refDate)).toBe("D");
   });
 
   it("D 封存客：沒有出貨記錄，註冊超過一年", () => {
     const registered = new Date(now - 400 * oneDay);
-    expect(classifyCustomer(null, 0, registered)).toBe("D");
+    expect(classifyCustomer(null, registered, 0, 0, refDate)).toBe("D");
   });
 
   it("O 機會客：一年內都沒買，但有一年內註冊", () => {
     const registered = new Date(now - 100 * oneDay);
-    expect(classifyCustomer(null, 0, registered)).toBe("O");
+    expect(classifyCustomer(null, registered, 0, 0, refDate)).toBe("O");
   });
 
   it("O 機會客：出貨超過一年，但有一年內註冊", () => {
     const lastShipment = new Date(now - 400 * oneDay);
     const registered = new Date(now - 200 * oneDay);
-    expect(classifyCustomer(lastShipment, 1, registered)).toBe("O");
+    expect(classifyCustomer(lastShipment, registered, 0, 0, refDate)).toBe("O");
   });
 
-  it("邊界：恰好半年前出貨，僅買一次 → L 流失客（不在半年內）", () => {
+  it("邊界：恰好半年前出貨（差一天），180-365天區間僅1次 → L 流失客", () => {
     const lastShipment = new Date(now - sixMonthsMs - oneDay);
-    expect(classifyCustomer(lastShipment, 1, null)).toBe("L");
+    expect(classifyCustomer(lastShipment, null, 0, 1, refDate)).toBe("L");
   });
 
-  it("邊界：恰好半年內出貨（差一天），僅買一次 → N 新鮮客", () => {
+  it("邊界：恰好半年內出貨（差一天），180天內僅1次 → N 新鮮客", () => {
     const lastShipment = new Date(now - sixMonthsMs + oneDay);
-    expect(classifyCustomer(lastShipment, 1, null)).toBe("N");
+    expect(classifyCustomer(lastShipment, null, 1, 0, refDate)).toBe("N");
+  });
+
+  it("關鍵行為變更：歷史訂單多但半年內僅1次 → N 而非 A", () => {
+    const lastShipment = new Date(now - 10 * oneDay);
+    // ordersInSixMonths=1, ordersInSixToYear=5 (many historical orders)
+    expect(classifyCustomer(lastShipment, null, 1, 5, refDate)).toBe("N");
   });
 });
 

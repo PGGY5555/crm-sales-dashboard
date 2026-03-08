@@ -38,6 +38,7 @@ import {
   getAuditLogs,
   getCustomerAnalyticsStats,
   getCustomerRegistrationTrend,
+  recalculateAllLifecycles,
 } from "./db";
 import { PERMISSION_KEYS, type PermissionKey } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
@@ -129,6 +130,22 @@ export const appRouter = router({
       }).optional())
       .query(async ({ input }) => {
         return getCustomerList(input ?? {});
+      }),
+
+    /** Recalculate lifecycle for all customers */
+    recalculateLifecycle: protectedProcedure
+      .input(z.object({
+        referenceDate: z.date(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await recalculateAllLifecycles(input.referenceDate);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "recalculate_lifecycle", category: "客戶分析",
+          description: `重算生命週期（起算日：${input.referenceDate.toISOString().slice(0, 10)}），共更新 ${result.updated} 筆`,
+          details: { referenceDate: input.referenceDate.toISOString(), ...result },
+        });
+        return result;
       }),
 
     /** Last sync status */

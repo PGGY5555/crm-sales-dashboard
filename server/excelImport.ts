@@ -844,7 +844,17 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
       .sort((a: Date, b: Date) => a.getTime() - b.getTime());
     const avgRepurchaseDays = calculateRepurchaseDays(orderDates);
 
-    const lifecycle = classifyCustomer(lastShipmentAt, totalOrders, cust.registeredAt);
+    // Count shipped orders in time intervals (using current date as reference)
+    const now = Date.now();
+    const sixMonthsAgo = now - 180 * 24 * 60 * 60 * 1000;
+    const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
+    const ordersInSixMonths = shippedOrders.filter((o: any) => o.shippedAt!.getTime() >= sixMonthsAgo).length;
+    const ordersInSixToYear = shippedOrders.filter((o: any) => {
+      const t = o.shippedAt!.getTime();
+      return t >= oneYearAgo && t < sixMonthsAgo;
+    }).length;
+
+    const lifecycle = classifyCustomer(lastShipmentAt, cust.registeredAt, ordersInSixMonths, ordersInSixToYear);
 
     let lastPurchaseDate: Date | null = null;
     let lastPurchaseAmount: number | null = null;

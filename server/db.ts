@@ -1351,3 +1351,106 @@ export async function getOrderDetail(orderId: number) {
     items,
   };
 }
+
+
+/**
+ * Recalculate lifecycle for ALL customers using batch SQL.
+ * Uses the referenceDate as "today" to compute 180-day and 365-day intervals.
+ * Returns the number of customers updated.
+ */
+export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
+  total: number;
+  updated: number;
+  distribution: Record<string, number>;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const refTime = referenceDate.getTime();
+  const sixMonthsMs = 180 * 24 * 60 * 60 * 1000;
+  const oneYearMs = 365 * 24 * 60 * 60 * 1000;
+  const sixMonthsAgo = new Date(refTime - sixMonthsMs);
+  const oneYearAgo = new Date(refTime - oneYearMs);
+
+  // Step 1: Get all customers with their lastShipmentAt and registeredAt
+  const allCustomers = await db
+    .select({
+      id: customers.id,
+      externalId: customers.externalId,
+      lastShipmentAt: customers.lastShipmentAt,
+      registeredAt: customers.registeredAt,
+    })
+    .from(customers);
+
+  // Step 2: Batch query - count shipped orders per customer in each interval
+  // Using raw SQL for efficiency
+  const shippedOrderStats = await db.execute(sql`
+    SELECT 
+      c.id AS customerId,
+      SUM(CASE WHEN o.shipped_at >= ${sixMonthsAgo} AND o.shipped_at <= ${referenceDate} THEN 1 ELSE 0 END) AS ordersIn6m,
+      SUM(CASE WHEN o.shipped_at >= ${oneYearAgo} AND o.shipped_at < ${sixMonthsAgo} THEN 1 ELSE 0 END) AS ordersIn6to12m
+    FROM customers c
+    LEFT JOIN orders o ON (
+      (o.customer_id = c.id OR o.customer_external_id = c.external_id)
+      AND o.order_status != -1
+      AND o.is_shipped = 1
+      AND o.shipped_at IS NOT NULL
+    )
+    GROUP BY c.id
+  `);
+
+  // Build lookup map
+  const statsMap = new Map<number, { ordersIn6m: number; ordersIn6to12m: number }>();
+  const rows = (shippedOrderStats as any)[0] || shippedOrderStats;
+  if (Array.isArray(rows)) {
+    for (const row of rows) {
+      statsMap.set(Number(row.customerId), {
+        ordersIn6m: Number(row.ordersIn6m || 0),
+        ordersIn6to12m: Number(row.ordersIn6to12m || 0),
+      });
+    }
+  }
+
+  // Step 3: Classify each customer and batch update
+  const { classifyCustomer } = await import("./sync");
+  const distribution: Record<string, number> = { N: 0, A: 0, S: 0, L: 0, D: 0, O: 0 };
+  const BATCH_SIZE = 500;
+  let updated = 0;
+
+  // Group updates by lifecycle to minimize SQL calls
+  const lifecycleUpdates: Record<string, number[]> = { N: [], A: [], S: [], L: [], D: [], O: [] };
+
+  for (const cust of allCustomers) {
+    const stats = statsMap.get(cust.id) || { ordersIn6m: 0, ordersIn6to12m: 0 };
+    const lifecycle = classifyCustomer(
+      cust.lastShipmentAt,
+      cust.registeredAt,
+      stats.ordersIn6m,
+      stats.ordersIn6to12m,
+      referenceDate
+    );
+    distribution[lifecycle] = (distribution[lifecycle] || 0) + 1;
+    lifecycleUpdates[lifecycle].push(cust.id);
+  }
+
+  // Batch update by lifecycle category
+  for (const [lifecycle, ids] of Object.entries(lifecycleUpdates)) {
+    if (ids.length === 0) continue;
+    // Process in sub-batches
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const batch = ids.slice(i, i + BATCH_SIZE);
+      await db.execute(sql`
+        UPDATE customers 
+        SET lifecycle = ${lifecycle}
+        WHERE id IN (${sql.join(batch.map(id => sql`${id}`), sql`, `)})
+      `);
+      updated += batch.length;
+    }
+  }
+
+  return {
+    total: allCustomers.length,
+    updated,
+    distribution,
+  };
+}

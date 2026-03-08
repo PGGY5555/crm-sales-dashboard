@@ -12,33 +12,41 @@ const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
  * Classify customer lifecycle based on rules:
- * N: last shipment within 6 months, only 1 purchase
- * A: last shipment within 6 months, more than 1 purchase
- * S: last shipment within 1 year, more than 1 purchase, but NOT within 6 months
- * L: last shipment within 1 year, only 1 purchase, but NOT within 6 months
- * D: no shipment within 1 year (and not O)
- * O: no shipment within 1 year, but registered within 1 year
+ * N: last shipment within 6 months (180d), only 1 shipment in that period
+ * A: last shipment within 6 months (180d), 2+ shipments in that period
+ * S: last shipment within 6-12 months (180-365d), 2+ shipments in that period
+ * L: last shipment within 6-12 months (180-365d), only 1 shipment in that period
+ * D: no shipment within 1 year (365d) and not O
+ * O: no shipment within 1 year (365d), but registered within 1 year
+ *
+ * @param lastShipmentAt - The customer's last shipment date
+ * @param registeredAt - The customer's registration date
+ * @param ordersInSixMonths - Number of shipped orders within 180 days of referenceDate
+ * @param ordersInSixToYear - Number of shipped orders between 180-365 days of referenceDate
+ * @param referenceDate - The reference date ("today") for calculation, defaults to now
  */
 export function classifyCustomer(
   lastShipmentAt: Date | null,
-  totalOrders: number,
-  registeredAt: Date | null
+  registeredAt: Date | null,
+  ordersInSixMonths: number,
+  ordersInSixToYear: number,
+  referenceDate?: Date
 ): "N" | "A" | "S" | "L" | "D" | "O" {
-  const now = Date.now();
-  const sixMonthsAgo = now - SIX_MONTHS_MS;
-  const oneYearAgo = now - ONE_YEAR_MS;
+  const refTime = referenceDate ? referenceDate.getTime() : Date.now();
+  const sixMonthsAgo = refTime - SIX_MONTHS_MS;
+  const oneYearAgo = refTime - ONE_YEAR_MS;
 
   if (lastShipmentAt) {
     const lastShipTime = lastShipmentAt.getTime();
 
     // Within 6 months
     if (lastShipTime >= sixMonthsAgo) {
-      return totalOrders > 1 ? "A" : "N";
+      return ordersInSixMonths > 1 ? "A" : "N";
     }
 
     // Within 1 year but not within 6 months
     if (lastShipTime >= oneYearAgo) {
-      return totalOrders > 1 ? "S" : "L";
+      return ordersInSixToYear > 1 ? "S" : "L";
     }
   }
 
@@ -236,8 +244,18 @@ async function updateCustomerStats(db: NonNullable<Awaited<ReturnType<typeof get
       .sort((a, b) => a.getTime() - b.getTime());
     const avgRepurchaseDays = calculateRepurchaseDays(orderDates);
 
+    // Count shipped orders in time intervals (using current date as reference)
+    const now = Date.now();
+    const sixMonthsAgo = now - 180 * 24 * 60 * 60 * 1000;
+    const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
+    const ordersInSixMonths = shippedOrders.filter(o => o.shippedAt!.getTime() >= sixMonthsAgo).length;
+    const ordersInSixToYear = shippedOrders.filter(o => {
+      const t = o.shippedAt!.getTime();
+      return t >= oneYearAgo && t < sixMonthsAgo;
+    }).length;
+
     // Classify lifecycle
-    const lifecycle = classifyCustomer(lastShipmentAt, totalOrders, cust.registeredAt);
+    const lifecycle = classifyCustomer(lastShipmentAt, cust.registeredAt, ordersInSixMonths, ordersInSixToYear);
 
     await db.update(customers)
       .set({
