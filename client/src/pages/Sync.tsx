@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Shield, Key, Save,
-  Upload, FileSpreadsheet, Users, ShoppingCart, Package, Trash2, Truck
+  Upload, FileSpreadsheet, Users, ShoppingCart, Package, Trash2, Truck, Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePermissions } from "@/hooks/usePermissions";
+import { Progress } from "@/components/ui/progress";
 
 type ExcelFileType = "customers" | "orders" | "products" | "logistics";
 
@@ -31,7 +32,22 @@ interface UploadState {
   file: File | null;
   uploading: boolean;
   result: any | null;
+  /** Background job tracking */
+  jobId: number | null;
+  jobStatus: string | null; // "pending" | "processing" | "completed" | "failed"
+  jobProgress: number; // 0-100
+  jobDetail: string | null;
 }
+
+const defaultUploadState: UploadState = {
+  file: null,
+  uploading: false,
+  result: null,
+  jobId: null,
+  jobStatus: null,
+  jobProgress: 0,
+  jobDetail: null,
+};
 
 export default function Sync() {
   const { user } = useAuth();
@@ -50,15 +66,23 @@ export default function Sync() {
   const [appName, setAppName] = useState("");
 
   // Excel upload states
-  const [customerUpload, setCustomerUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
-  const [orderUpload, setOrderUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
-  const [productUpload, setProductUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
-  const [logisticsUpload, setLogisticsUpload] = useState<UploadState>({ file: null, uploading: false, result: null });
+  const [customerUpload, setCustomerUpload] = useState<UploadState>({ ...defaultUploadState });
+  const [orderUpload, setOrderUpload] = useState<UploadState>({ ...defaultUploadState });
+  const [productUpload, setProductUpload] = useState<UploadState>({ ...defaultUploadState });
+  const [logisticsUpload, setLogisticsUpload] = useState<UploadState>({ ...defaultUploadState });
 
   const customerFileRef = useRef<HTMLInputElement>(null);
   const orderFileRef = useRef<HTMLInputElement>(null);
   const productFileRef = useRef<HTMLInputElement>(null);
   const logisticsFileRef = useRef<HTMLInputElement>(null);
+
+  // Polling refs for background jobs
+  const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval> | null>>({
+    customers: null,
+    orders: null,
+    products: null,
+    logistics: null,
+  });
 
   const { data: credentials, isLoading: credsLoading, refetch: refetchCreds } =
     trpc.settings.getCredentials.useQuery(undefined, { enabled: isAdmin });
@@ -119,7 +143,6 @@ export default function Sync() {
           return `${labels[k] || k} ${v} 筆`;
         });
       toast.success(`清除完成！${entries.join("、") || "無資料需清除"}`);
-      // Invalidate all dashboard queries
       utils.dashboard.invalidate();
       refetchStatus();
     },
@@ -150,7 +173,6 @@ export default function Sync() {
         } else {
           next.add(target);
         }
-        // If all three selected, switch to "all"
         if (next.has("customers") && next.has("orders") && next.has("products")) {
           next.clear();
           next.add("all");
@@ -160,7 +182,89 @@ export default function Sync() {
     });
   };
 
-  // Excel upload handler
+  // Helper: get state setter by file type
+  const getStateSetter = useCallback((fileType: ExcelFileType) => {
+    const map = {
+      customers: setCustomerUpload,
+      orders: setOrderUpload,
+      products: setProductUpload,
+      logistics: setLogisticsUpload,
+    };
+    return map[fileType];
+  }, []);
+
+  // Poll background job status
+  const startPolling = useCallback((fileType: ExcelFileType, jobId: number) => {
+    // Clear existing polling for this type
+    if (pollingRefs.current[fileType]) {
+      clearInterval(pollingRefs.current[fileType]!);
+    }
+
+    const setter = getStateSetter(fileType);
+    const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/trpc/importJob.status?input=${encodeURIComponent(JSON.stringify({ jobId }))}`);
+        const data = await response.json();
+        const job = data?.result?.data;
+
+        if (!job) return;
+
+        const totalRows = job.totalRows || 1;
+        const processedRows = job.processedRows || 0;
+        const progress = Math.min(Math.round((processedRows / totalRows) * 100), 100);
+
+        setter(prev => ({
+          ...prev,
+          jobStatus: job.status,
+          jobProgress: progress,
+          jobDetail: `已處理 ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} 筆（成功 ${(job.successRows || 0).toLocaleString()}，錯誤 ${(job.errorRows || 0).toLocaleString()}）`,
+        }));
+
+        if (job.status === "completed" || job.status === "failed") {
+          // Stop polling
+          if (pollingRefs.current[fileType]) {
+            clearInterval(pollingRefs.current[fileType]!);
+            pollingRefs.current[fileType] = null;
+          }
+
+          setter(prev => ({
+            ...prev,
+            uploading: false,
+            jobProgress: job.status === "completed" ? 100 : prev.jobProgress,
+            result: job.status === "completed"
+              ? { success: true, ...((job.result as Record<string, unknown>) || {}), backgroundJob: true }
+              : { success: false, error: job.errorMessage || "匯入失敗" },
+          }));
+
+          if (job.status === "completed") {
+            toast.success(`${typeLabel}資料背景匯入完成！成功 ${(job.successRows || 0).toLocaleString()} 筆`);
+            refetchStatus();
+          } else {
+            toast.error(`${typeLabel}資料匯入失敗: ${job.errorMessage || "未知錯誤"}`);
+          }
+        }
+      } catch (err) {
+        console.error("[Polling] Error:", err);
+      }
+    };
+
+    // Poll immediately, then every 2 seconds
+    poll();
+    pollingRefs.current[fileType] = setInterval(poll, 2000);
+  }, [getStateSetter, refetchStatus]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(pollingRefs.current).forEach(interval => {
+        if (interval) clearInterval(interval);
+      });
+    };
+  }, []);
+
+  // Excel upload handler (supports background job mode)
   const handleExcelUpload = async (fileType: ExcelFileType) => {
     const stateMap = {
       customers: { state: customerUpload, setState: setCustomerUpload },
@@ -175,7 +279,15 @@ export default function Sync() {
       return;
     }
 
-    setState({ ...state, uploading: true, result: null });
+    setState({
+      ...state,
+      uploading: true,
+      result: null,
+      jobId: null,
+      jobStatus: null,
+      jobProgress: 0,
+      jobDetail: null,
+    });
 
     try {
       const formData = new FormData();
@@ -193,22 +305,45 @@ export default function Sync() {
         throw new Error(result.error || "上傳失敗");
       }
 
-      setState({ ...state, uploading: false, result });
-
-      if (result.success || result.matched !== undefined) {
-        if (fileType === "logistics") {
-          toast.success(`物流資料匯入完成！匹配 ${result.matched ?? 0} 筆，未匹配 ${result.unmatched ?? 0} 筆`);
-        } else {
-          const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
-          const count = result.processed ?? result.ordersProcessed ?? 0;
-          toast.success(`${typeLabel}資料匯入成功！處理 ${count} 筆記錄`);
-        }
-        refetchStatus();
+      // Check if this is a background job
+      if (result.backgroundJob && result.jobId) {
+        setState(prev => ({
+          ...prev,
+          jobId: result.jobId,
+          jobStatus: "pending",
+          jobProgress: 0,
+          jobDetail: `匯入任務已建立，共 ${(result.totalRows || 0).toLocaleString()} 筆資料`,
+        }));
+        toast.info(`檔案已上傳，${(result.totalRows || 0).toLocaleString()} 筆資料將在背景處理中...`);
+        // Start polling for progress
+        startPolling(fileType, result.jobId);
       } else {
-        toast.error(`匯入失敗: ${result.error}`);
+        // Synchronous mode (small files)
+        setState({ ...state, uploading: false, result, jobId: null, jobStatus: null, jobProgress: 0, jobDetail: null });
+
+        if (result.success || result.matched !== undefined) {
+          if (fileType === "logistics") {
+            toast.success(`物流資料匯入完成！匹配 ${result.matched ?? 0} 筆，未匹配 ${result.unmatched ?? 0} 筆`);
+          } else {
+            const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
+            const count = result.processed ?? result.ordersProcessed ?? 0;
+            toast.success(`${typeLabel}資料匯入成功！處理 ${count} 筆記錄`);
+          }
+          refetchStatus();
+        } else {
+          toast.error(`匯入失敗: ${result.error}`);
+        }
       }
     } catch (error: any) {
-      setState({ ...state, uploading: false, result: { success: false, error: error.message } });
+      setState({
+        ...state,
+        uploading: false,
+        result: { success: false, error: error.message },
+        jobId: null,
+        jobStatus: null,
+        jobProgress: 0,
+        jobDetail: null,
+      });
       toast.error(`匯入錯誤: ${error.message}`);
     }
   };
@@ -220,7 +355,7 @@ export default function Sync() {
       products: setProductUpload,
       logistics: setLogisticsUpload,
     };
-    stateMap[fileType]({ file, uploading: false, result: null });
+    stateMap[fileType]({ ...defaultUploadState, file });
   };
 
   const getStatusIcon = (status: string | undefined) => {
@@ -267,7 +402,7 @@ export default function Sync() {
     );
   }
 
-  // Render an Excel upload card
+  // Render an Excel upload card with background job progress support
   const renderUploadCard = (
     fileType: ExcelFileType,
     icon: React.ReactNode,
@@ -275,103 +410,146 @@ export default function Sync() {
     description: string,
     state: UploadState,
     fileRef: React.RefObject<HTMLInputElement | null>,
-  ) => (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          {icon}
-          <CardTitle className="text-base">{title}</CardTitle>
-        </div>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => handleFileSelect(fileType, e.target.files?.[0] || null)}
-          />
-          <div
-            onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors"
+  ) => {
+    const isBackgroundJob = state.jobId !== null;
+    const isProcessing = state.uploading || (isBackgroundJob && (state.jobStatus === "pending" || state.jobStatus === "processing"));
+
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            {icon}
+            <CardTitle className="text-base">{title}</CardTitle>
+          </div>
+          <CardDescription>{description}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => handleFileSelect(fileType, e.target.files?.[0] || null)}
+            />
+            <div
+              onClick={() => !isProcessing && fileRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                isProcessing
+                  ? "cursor-not-allowed opacity-60"
+                  : "cursor-pointer hover:border-primary/50 hover:bg-muted/30"
+              }`}
+            >
+              {state.file ? (
+                <div className="flex items-center justify-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium">{state.file.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    ({(state.file.size / 1024).toFixed(1)} KB)
+                  </span>
+                </div>
+              ) : (
+                <div>
+                  <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                  <p className="text-sm text-muted-foreground">
+                    點擊選擇或拖放 Excel 檔案
+                  </p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    支援 .xlsx, .xls, .csv 格式
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <Button
+            onClick={() => handleExcelUpload(fileType)}
+            disabled={!state.file || isProcessing}
+            className="w-full"
           >
-            {state.file ? (
-              <div className="flex items-center justify-center gap-2">
-                <FileSpreadsheet className="h-5 w-5 text-green-600" />
-                <span className="text-sm font-medium">{state.file.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  ({(state.file.size / 1024).toFixed(1)} KB)
+            {isProcessing ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {isBackgroundJob ? "背景處理中..." : "匯入中..."}
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4 mr-2" />
+                開始匯入
+              </>
+            )}
+          </Button>
+
+          {/* Background Job Progress */}
+          {isBackgroundJob && (state.jobStatus === "pending" || state.jobStatus === "processing") && (
+            <div className="space-y-2 p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-950/30 dark:border-blue-800">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  <span className="font-medium text-blue-800 dark:text-blue-300">
+                    {state.jobStatus === "pending" ? "準備中..." : "匯入進行中"}
+                  </span>
+                </div>
+                <span className="text-blue-600 dark:text-blue-400 font-mono text-sm">
+                  {state.jobProgress}%
                 </span>
               </div>
-            ) : (
-              <div>
-                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">
-                  點擊選擇或拖放 Excel 檔案
-                </p>
-                <p className="text-xs text-muted-foreground/60 mt-1">
-                  支援 .xlsx, .xls, .csv 格式
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <Button
-          onClick={() => handleExcelUpload(fileType)}
-          disabled={!state.file || state.uploading}
-          className="w-full"
-        >
-          {state.uploading ? (
-            <>
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              匯入中...
-            </>
-          ) : (
-            <>
-              <Upload className="h-4 w-4 mr-2" />
-              開始匯入
-            </>
+              <Progress value={state.jobProgress} className="h-2" />
+              {state.jobDetail && (
+                <p className="text-xs text-blue-600 dark:text-blue-400">{state.jobDetail}</p>
+              )}
+            </div>
           )}
-        </Button>
 
-        {state.result && (
-          <div className={`p-3 rounded-lg text-sm ${
-            state.result.success
-              ? "bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300"
-              : "bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300"
-          }`}>
-            {state.result.success ? (
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 shrink-0" />
-                <div>
-                  <p className="font-medium">匯入成功</p>
-                  {state.result.processed !== undefined && (
-                    <p className="text-xs mt-0.5">處理 {state.result.processed} 筆記錄</p>
-                  )}
-                  {state.result.ordersProcessed !== undefined && (
-                    <p className="text-xs mt-0.5">
-                      訂單 {state.result.ordersProcessed} 筆，商品明細 {state.result.itemsProcessed ?? 0} 筆
+          {/* Result display */}
+          {state.result && (
+            <div className={`p-3 rounded-lg text-sm ${
+              state.result.success
+                ? "bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300"
+                : "bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300"
+            }`}>
+              {state.result.success ? (
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-medium">
+                      匯入成功{state.result.backgroundJob ? "（背景任務）" : ""}
                     </p>
-                  )}
+                    {state.result.processed !== undefined && (
+                      <p className="text-xs mt-0.5">處理 {Number(state.result.processed).toLocaleString()} 筆記錄</p>
+                    )}
+                    {state.result.ordersProcessed !== undefined && (
+                      <p className="text-xs mt-0.5">
+                        訂單 {Number(state.result.ordersProcessed).toLocaleString()} 筆，商品明細 {Number(state.result.itemsProcessed ?? 0).toLocaleString()} 筆
+                      </p>
+                    )}
+                    {state.result.matched !== undefined && (
+                      <p className="text-xs mt-0.5">
+                        匹配 {Number(state.result.matched).toLocaleString()} 筆，未匹配 {Number(state.result.unmatched ?? 0).toLocaleString()} 筆
+                      </p>
+                    )}
+                    {state.result.errorCount !== undefined && state.result.errorCount > 0 && (
+                      <p className="text-xs mt-0.5 text-orange-600">
+                        其中 {Number(state.result.errorCount).toLocaleString()} 筆發生錯誤
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <XCircle className="h-4 w-4 shrink-0" />
-                <div>
-                  <p className="font-medium">匯入失敗</p>
-                  <p className="text-xs mt-0.5">{state.result.error}</p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <XCircle className="h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-medium">匯入失敗</p>
+                    <p className="text-xs mt-0.5">{state.result.error}</p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -396,6 +574,16 @@ export default function Sync() {
 
         {/* Excel Import Tab */}
         <TabsContent value="excel" className="space-y-6 mt-6">
+          {/* Info banner for large files */}
+          <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-950/30 dark:border-blue-800">
+            <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-300">
+              <FileSpreadsheet className="h-4 w-4 shrink-0" />
+              <span>
+                支援大量資料匯入（數萬筆）。超過 500 筆的檔案將自動切換為背景處理模式，您可以即時查看匯入進度。
+              </span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {canUploadCustomers && renderUploadCard(
               "customers",
@@ -540,6 +728,7 @@ export default function Sync() {
                   <li><strong className="text-foreground">訂單物流檔</strong>：系統會用「PayNow物流單號」比對訂單的「出貨單號碼」，匹配成功後寫入「配送編號」和「物流狀態」</li>
                   <li>匯入訂單時，系統會自動根據會員信箱關聯對應的顧客，並更新客戶統計數據（總消費、訂單數、生命週期分類等）</li>
                   <li>重複匯入同一份檔案不會產生重複資料（系統會根據唯一識別碼自動更新）</li>
+                  <li><strong className="text-foreground">大量匯入</strong>：超過 500 筆的檔案會自動切換為背景處理模式，頁面會顯示即時進度條</li>
                   <li>支援 <strong className="text-foreground">.xlsx</strong>、<strong className="text-foreground">.xls</strong>、<strong className="text-foreground">.csv</strong> 格式</li>
                 </ul>
               </div>

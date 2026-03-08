@@ -8,7 +8,14 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
-import { importCustomersFromExcel, importOrdersFromExcel, importProductsFromExcel, importLogisticsExcel } from "../excelImport";
+import {
+  importCustomersFromExcel,
+  importOrdersFromExcel,
+  importProductsFromExcel,
+  importLogisticsExcel,
+  createImportJob,
+  countExcelRows,
+} from "../excelImport";
 import { sdk } from "./sdk";
 import { COOKIE_NAME } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
@@ -32,6 +39,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   }
   throw new Error(`No available port found starting from ${startPort}`);
 }
+
+// Threshold: if rows > this, use background job mode
+const BACKGROUND_JOB_THRESHOLD = 500;
 
 async function startServer() {
   const app = express();
@@ -80,37 +90,127 @@ async function startServer() {
         res.status(400).json({ error: "請指定檔案類型 (customers, orders, products, logistics)" });
         return;
       }
-      let result;
-      const typeLabels: Record<string, string> = { customers: '顧客列表', orders: '訂單列表', products: '商品列表', logistics: '訂單物流檔' };
-      switch (fileType) {
-        case "customers":
-          result = await importCustomersFromExcel(req.file.buffer);
-          break;
-        case "orders":
-          result = await importOrdersFromExcel(req.file.buffer);
-          break;
-        case "products":
-          result = await importProductsFromExcel(req.file.buffer);
-          break;
-        case "logistics":
-          result = await importLogisticsExcel(req.file.buffer);
-          break;
+
+      const typeLabels: Record<string, string> = {
+        customers: '顧客列表',
+        orders: '訂單列表',
+        products: '商品列表',
+        logistics: '訂單物流檔',
+      };
+
+      // Count rows to decide sync vs background mode
+      const totalRows = countExcelRows(req.file.buffer);
+      const fileBuffer = req.file.buffer;
+      const fileName = req.file.originalname || null;
+
+      if (totalRows > BACKGROUND_JOB_THRESHOLD) {
+        // === Background Job Mode ===
+        // Create a job record and return immediately
+        const jobId = await createImportJob(
+          dbUser.id,
+          dbUser.name || dbUser.email || 'unknown',
+          fileType,
+          fileName,
+          totalRows,
+        );
+
+        if (!jobId) {
+          res.status(500).json({ error: "無法建立匯入任務" });
+          return;
+        }
+
+        // Log the import action
+        await logAudit({
+          userId: dbUser.id,
+          userName: dbUser.name || dbUser.email || 'unknown',
+          action: 'excel_import_start',
+          category: 'data_sync',
+          description: `開始背景匯入${typeLabels[fileType] || fileType}（${totalRows} 筆）`,
+          details: { jobId, totalRows, fileName },
+        }).catch(() => {});
+
+        // Return immediately with job ID
+        res.json({
+          success: true,
+          backgroundJob: true,
+          jobId,
+          totalRows,
+          message: `匯入任務已建立，共 ${totalRows} 筆資料將在背景處理`,
+        });
+
+        // Run import in background (fire and forget)
+        setImmediate(async () => {
+          try {
+            let result: any;
+            switch (fileType) {
+              case "customers":
+                result = await importCustomersFromExcel(fileBuffer, jobId);
+                break;
+              case "orders":
+                result = await importOrdersFromExcel(fileBuffer, jobId);
+                break;
+              case "products":
+                result = await importProductsFromExcel(fileBuffer, jobId);
+                break;
+              case "logistics":
+                result = await importLogisticsExcel(fileBuffer, jobId);
+                break;
+            }
+            // Log completion
+            await logAudit({
+              userId: dbUser.id,
+              userName: dbUser.name || dbUser.email || 'unknown',
+              action: 'excel_import_complete',
+              category: 'data_sync',
+              description: `背景匯入${typeLabels[fileType] || fileType}完成`,
+              details: { jobId, ...((result as Record<string, unknown>) || {}) },
+            }).catch(() => {});
+          } catch (err: any) {
+            console.error("[Excel Background Import] Error:", err);
+            await logAudit({
+              userId: dbUser.id,
+              userName: dbUser.name || dbUser.email || 'unknown',
+              action: 'excel_import_failed',
+              category: 'data_sync',
+              description: `背景匯入${typeLabels[fileType] || fileType}失敗: ${err.message}`,
+              details: { jobId, error: err.message },
+            }).catch(() => {});
+          }
+        });
+      } else {
+        // === Synchronous Mode (small files) ===
+        let result;
+        switch (fileType) {
+          case "customers":
+            result = await importCustomersFromExcel(fileBuffer);
+            break;
+          case "orders":
+            result = await importOrdersFromExcel(fileBuffer);
+            break;
+          case "products":
+            result = await importProductsFromExcel(fileBuffer);
+            break;
+          case "logistics":
+            result = await importLogisticsExcel(fileBuffer);
+            break;
+        }
+        // Log the import action
+        await logAudit({
+          userId: dbUser.id,
+          userName: dbUser.name || dbUser.email || 'unknown',
+          action: 'excel_import',
+          category: 'data_sync',
+          description: `Excel 匯入${typeLabels[fileType] || fileType}`,
+          details: (result as Record<string, unknown>) || {},
+        }).catch(() => {});
+        res.json(result);
       }
-      // Log the import action
-      await logAudit({
-        userId: dbUser.id,
-        userName: dbUser.name || dbUser.email || 'unknown',
-        action: 'excel_import',
-        category: 'data_sync',
-        description: `Excel 匯入${typeLabels[fileType] || fileType}`,
-        details: (result as Record<string, unknown>) || {},
-      }).catch(() => {});
-      res.json(result);
     } catch (error: any) {
       console.error("[Excel Upload] Error:", error);
       res.status(500).json({ error: error.message || "上傳失敗" });
     }
   });
+
   // tRPC API
   app.use(
     "/api/trpc",

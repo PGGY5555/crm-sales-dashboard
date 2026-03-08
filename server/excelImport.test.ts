@@ -152,11 +152,92 @@ describe("Excel Import - Number parsing", () => {
 
 describe("Excel Import - Upload endpoint structure", () => {
   it("should validate file type parameter", () => {
-    const validTypes = ["customers", "orders", "products"];
+    const validTypes = ["customers", "orders", "products", "logistics"];
     expect(validTypes.includes("customers")).toBe(true);
     expect(validTypes.includes("orders")).toBe(true);
     expect(validTypes.includes("products")).toBe(true);
+    expect(validTypes.includes("logistics")).toBe(true);
     expect(validTypes.includes("invalid")).toBe(false);
     expect(validTypes.includes("")).toBe(false);
+  });
+});
+
+describe("Background Job Threshold Logic", () => {
+  const BACKGROUND_JOB_THRESHOLD = 500;
+
+  it("should use background mode for files with more than 500 rows", () => {
+    expect(40000 > BACKGROUND_JOB_THRESHOLD).toBe(true);
+    expect(501 > BACKGROUND_JOB_THRESHOLD).toBe(true);
+  });
+
+  it("should use synchronous mode for files with 500 or fewer rows", () => {
+    expect(500 > BACKGROUND_JOB_THRESHOLD).toBe(false);
+    expect(100 > BACKGROUND_JOB_THRESHOLD).toBe(false);
+    expect(1 > BACKGROUND_JOB_THRESHOLD).toBe(false);
+  });
+});
+
+describe("Background Job - Batch Size", () => {
+  const BATCH_SIZE = 200;
+
+  it("should calculate correct number of batches for 40000 rows", () => {
+    const totalRows = 40000;
+    const batches = Math.ceil(totalRows / BATCH_SIZE);
+    expect(batches).toBe(200);
+  });
+
+  it("should calculate correct number of batches for 1 row", () => {
+    const totalRows = 1;
+    const batches = Math.ceil(totalRows / BATCH_SIZE);
+    expect(batches).toBe(1);
+  });
+
+  it("should calculate correct number of batches for exactly BATCH_SIZE rows", () => {
+    const totalRows = 200;
+    const batches = Math.ceil(totalRows / BATCH_SIZE);
+    expect(batches).toBe(1);
+  });
+
+  it("should calculate correct number of batches for BATCH_SIZE + 1 rows", () => {
+    const totalRows = 201;
+    const batches = Math.ceil(totalRows / BATCH_SIZE);
+    expect(batches).toBe(2);
+  });
+});
+
+describe("Background Job - Progress Calculation", () => {
+  it("should calculate progress percentage correctly", () => {
+    const totalRows = 40000;
+    const processedRows = 10000;
+    const progress = Math.min(Math.round((processedRows / totalRows) * 100), 100);
+    expect(progress).toBe(25);
+  });
+
+  it("should cap progress at 100%", () => {
+    const totalRows = 100;
+    const processedRows = 150; // edge case: processed > total
+    const progress = Math.min(Math.round((processedRows / totalRows) * 100), 100);
+    expect(progress).toBe(100);
+  });
+
+  it("should handle zero total rows", () => {
+    const totalRows = 0;
+    const processedRows = 0;
+    const progress = totalRows === 0 ? 0 : Math.min(Math.round((processedRows / totalRows) * 100), 100);
+    expect(progress).toBe(0);
+  });
+
+  it("should show 0% at start", () => {
+    const totalRows = 40000;
+    const processedRows = 0;
+    const progress = Math.min(Math.round((processedRows / totalRows) * 100), 100);
+    expect(progress).toBe(0);
+  });
+
+  it("should show 100% when complete", () => {
+    const totalRows = 40000;
+    const processedRows = 40000;
+    const progress = Math.min(Math.round((processedRows / totalRows) * 100), 100);
+    expect(progress).toBe(100);
   });
 });

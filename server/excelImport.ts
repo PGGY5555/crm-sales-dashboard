@@ -1,11 +1,13 @@
 /**
  * Excel Import Service: parse and import customer, order, and product data from Excel files.
  * Maps Shopnex Excel export columns to our DB schema.
+ * 
+ * Supports background job mode with batch writes and progress tracking for large imports.
  */
 import * as XLSX from "xlsx";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { customers, orders, orderItems, products, syncLogs } from "../drizzle/schema";
+import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
 import { classifyCustomer, calculateRepurchaseDays } from "./sync";
 
 // ===== Column Mappings =====
@@ -110,7 +112,6 @@ function parseExcel<T>(buffer: Buffer): T[] {
 
 function parseDate(dateStr: string | number | undefined | null): Date | null {
   if (!dateStr) return null;
-  // Handle Excel serial date numbers
   if (typeof dateStr === "number") {
     const excelEpoch = new Date(1899, 11, 30);
     return new Date(excelEpoch.getTime() + dateStr * 86400000);
@@ -148,9 +149,133 @@ function isShippedFromText(statusText: string | undefined): boolean {
   return s.includes("已出貨") || s.includes("已送達") || s.includes("完成") || s.includes("已到貨");
 }
 
-// ===== Import Customers from Excel =====
+// ===== Batch size for bulk inserts =====
+const BATCH_SIZE = 200;
 
-export async function importCustomersFromExcel(buffer: Buffer): Promise<{
+// ===== Helper: update import job progress =====
+async function updateJobProgress(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  jobId: number,
+  processedRows: number,
+  successRows: number,
+  errorRows: number,
+) {
+  try {
+    await db.update(importJobs).set({
+      processedRows,
+      successRows,
+      errorRows,
+      status: "processing",
+    }).where(eq(importJobs.id, jobId));
+  } catch (err) {
+    console.error("[ImportJob] Failed to update progress:", err);
+  }
+}
+
+async function completeJob(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  jobId: number,
+  successRows: number,
+  errorRows: number,
+  result: Record<string, unknown>,
+) {
+  try {
+    await db.update(importJobs).set({
+      status: "completed",
+      processedRows: successRows + errorRows,
+      successRows,
+      errorRows,
+      result,
+      completedAt: new Date(),
+    }).where(eq(importJobs.id, jobId));
+  } catch (err) {
+    console.error("[ImportJob] Failed to complete job:", err);
+  }
+}
+
+async function failJob(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  jobId: number,
+  errorMessage: string,
+  processedRows: number = 0,
+  successRows: number = 0,
+  errorRows: number = 0,
+) {
+  try {
+    await db.update(importJobs).set({
+      status: "failed",
+      errorMessage,
+      processedRows,
+      successRows,
+      errorRows,
+      completedAt: new Date(),
+    }).where(eq(importJobs.id, jobId));
+  } catch (err) {
+    console.error("[ImportJob] Failed to fail job:", err);
+  }
+}
+
+// ===== Create import job =====
+export async function createImportJob(
+  userId: number,
+  userName: string | null,
+  fileType: string,
+  fileName: string | null,
+  totalRows: number,
+): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [result] = await db.insert(importJobs).values({
+    userId,
+    userName,
+    fileType,
+    fileName,
+    totalRows,
+    status: "pending",
+    processedRows: 0,
+    successRows: 0,
+    errorRows: 0,
+  });
+  return Number(result.insertId);
+}
+
+// ===== Get import job status =====
+export async function getImportJobStatus(jobId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+  return job || null;
+}
+
+// ===== Get active import jobs =====
+export async function getActiveImportJobs() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const jobs = await db.select().from(importJobs)
+    .where(sql`${importJobs.createdAt} >= ${oneDayAgo}`)
+    .orderBy(sql`${importJobs.createdAt} DESC`)
+    .limit(20);
+
+  return jobs;
+}
+
+// ===== Parse rows count from buffer =====
+export function countExcelRows(buffer: Buffer): number {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) return 0;
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  return rows.length;
+}
+
+// ===== Import Customers from Excel (Background Job Mode) =====
+
+export async function importCustomersFromExcel(buffer: Buffer, jobId?: number): Promise<{
   success: boolean;
   processed: number;
   error?: string;
@@ -167,88 +292,101 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
   try {
     const rows = parseExcel<CustomerRow>(buffer);
     let processed = 0;
+    let errorCount = 0;
 
-    for (const row of rows) {
-      const name = row["顧客名稱"]?.trim();
-      const email = row["電子信箱"]?.trim();
-      const phone = row["電話"]?.trim();
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+      
+      for (const row of batch) {
+        try {
+          const name = row["顧客名稱"]?.trim();
+          const email = row["電子信箱"]?.trim();
+          const phone = row["電話"]?.trim();
 
-      // Use email or phone as unique identifier
-      const extId = email || phone || `excel_${processed}_${Date.now()}`;
-      if (!name && !email && !phone) continue;
+          const extId = email || phone || `excel_${processed}_${Date.now()}`;
+          if (!name && !email && !phone) continue;
 
-      const birthday = row["生日"]?.trim() || null;
-      const tags = row["會員標籤"]?.trim() || null;
-      const memberLevel = row["會員等級"]?.trim() || null;
-      const credits = String(parseNum(row["購物金餘額"]));
-      const recipientName = row["收貨人"]?.trim() || null;
-      const recipientPhone = row["收貨人手機"]?.trim() || null;
-      const recipientEmail = row["收貨人電子郵件"]?.trim() || null;
-      const notes = row["顧客備註"]?.trim() || null;
-      const blacklisted = row["黑名單"]?.trim() || "否";
-      const lineUid = row["LINE UID"]?.trim() || null;
-      const note1 = row["備註1"]?.trim() || null;
-      const note2 = row["備註2"]?.trim() || null;
-      const custom1 = row["自訂1"]?.trim() || null;
-      const custom2 = row["自訂2"]?.trim() || null;
-      const custom3 = row["自訂3"]?.trim() || null;
+          const birthday = row["生日"]?.trim() || null;
+          const tags = row["會員標籤"]?.trim() || null;
+          const memberLevel = row["會員等級"]?.trim() || null;
+          const credits = String(parseNum(row["購物金餘額"]));
+          const recipientName = row["收貨人"]?.trim() || null;
+          const recipientPhone = row["收貨人手機"]?.trim() || null;
+          const recipientEmail = row["收貨人電子郵件"]?.trim() || null;
+          const notes = row["顧客備註"]?.trim() || null;
+          const blacklisted = row["黑名單"]?.trim() || "否";
+          const lineUid = row["LINE UID"]?.trim() || null;
+          const note1 = row["備註1"]?.trim() || null;
+          const note2 = row["備註2"]?.trim() || null;
+          const custom1 = row["自訂1"]?.trim() || null;
+          const custom2 = row["自訂2"]?.trim() || null;
+          const custom3 = row["自訂3"]?.trim() || null;
 
-      // Parse registration date from Excel
-      let registeredAt: Date | null = null;
-      const regTimeStr = row["註冊時間"]?.trim();
-      if (regTimeStr) {
-        const parsed = new Date(regTimeStr);
-        if (!isNaN(parsed.getTime())) registeredAt = parsed;
+          let registeredAt: Date | null = null;
+          const regTimeStr = row["註冊時間"]?.trim();
+          if (regTimeStr) {
+            const parsed = new Date(regTimeStr);
+            if (!isNaN(parsed.getTime())) registeredAt = parsed;
+          }
+
+          await db.insert(customers).values({
+            externalId: extId,
+            name: name || null,
+            email: email || null,
+            phone: phone || null,
+            registeredAt,
+            totalOrders: 0,
+            totalSpent: "0",
+            birthday,
+            tags,
+            memberLevel,
+            credits,
+            recipientName,
+            recipientPhone,
+            recipientEmail,
+            notes,
+            blacklisted,
+            lineUid,
+            note1,
+            note2,
+            custom1,
+            custom2,
+            custom3,
+            rawData: row,
+          }).onDuplicateKeyUpdate({
+            set: {
+              name: name || null,
+              phone: phone || null,
+              registeredAt,
+              birthday,
+              tags,
+              memberLevel,
+              credits,
+              recipientName,
+              recipientPhone,
+              recipientEmail,
+              notes,
+              blacklisted,
+              lineUid,
+              note1,
+              note2,
+              custom1,
+              custom2,
+              custom3,
+              rawData: row,
+            },
+          });
+          processed++;
+        } catch (rowErr) {
+          errorCount++;
+          console.error("[ExcelImport] Customer row error:", rowErr);
+        }
       }
 
-      await db.insert(customers).values({
-        externalId: extId,
-        name: name || null,
-        email: email || null,
-        phone: phone || null,
-        registeredAt,
-        totalOrders: 0,
-        totalSpent: "0",
-        birthday,
-        tags,
-        memberLevel,
-        credits,
-        recipientName,
-        recipientPhone,
-        recipientEmail,
-        notes,
-        blacklisted,
-        lineUid,
-        note1,
-        note2,
-        custom1,
-        custom2,
-        custom3,
-        rawData: row,
-      }).onDuplicateKeyUpdate({
-        set: {
-          name: name || null,
-          phone: phone || null,
-          registeredAt,
-          birthday,
-          tags,
-          memberLevel,
-          credits,
-          recipientName,
-          recipientPhone,
-          recipientEmail,
-          notes,
-          blacklisted,
-          lineUid,
-          note1,
-          note2,
-          custom1,
-          custom2,
-          custom3,
-          rawData: row,
-        },
-      });
-      processed++;
+      // Update job progress after each batch
+      if (jobId) {
+        await updateJobProgress(db, jobId, processed + errorCount, processed, errorCount);
+      }
     }
 
     await db.update(syncLogs).set({
@@ -257,6 +395,10 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
       completedAt: new Date(),
     }).where(eq(syncLogs.id, Number(logId)));
 
+    if (jobId) {
+      await completeJob(db, jobId, processed, errorCount, { processed, errorCount });
+    }
+
     return { success: true, processed };
   } catch (error: any) {
     await db.update(syncLogs).set({
@@ -264,13 +406,17 @@ export async function importCustomersFromExcel(buffer: Buffer): Promise<{
       errorMessage: error.message || String(error),
       completedAt: new Date(),
     }).where(eq(syncLogs.id, Number(logId)));
+    
+    if (jobId) {
+      await failJob(db, jobId, error.message || String(error));
+    }
     return { success: false, processed: 0, error: error.message || String(error) };
   }
 }
 
-// ===== Import Orders from Excel =====
+// ===== Import Orders from Excel (Background Job Mode) =====
 
-export async function importOrdersFromExcel(buffer: Buffer): Promise<{
+export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Promise<{
   success: boolean;
   ordersProcessed: number;
   itemsProcessed: number;
@@ -288,7 +434,6 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
   try {
     const rows = parseExcel<OrderRow>(buffer);
 
-    // Group rows by order number (one order can have multiple line items)
     const orderMap = new Map<string, OrderRow[]>();
     for (const row of rows) {
       const orderNum = String(row["訂單編號"] || "").trim();
@@ -301,120 +446,126 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
 
     let ordersProcessed = 0;
     let itemsProcessed = 0;
+    let errorCount = 0;
+    const orderEntries = Array.from(orderMap.entries());
 
-    for (const [orderNum, orderRows] of Array.from(orderMap.entries())) {
-      const firstRow = orderRows[0];
-      const orderDate = parseDate(firstRow["訂單建立時間"]);
-      const orderStatus = mapOrderStatus(firstRow["訂單處理狀態"]);
-      const shipped = isShippedFromText(firstRow["出貨狀態"]);
-      const total = parseNum(firstRow["訂單總計"]);
-      const shipmentFee = parseNum(firstRow["訂單運費"]);
-      // 讀取「出貨單日期」欄位，若沒有則回退用出貨狀態 + 訂單日期
-      const shippedAtDate = parseDate(firstRow["出貨單日期"]) || (shipped ? orderDate : null);
+    for (let i = 0; i < orderEntries.length; i += BATCH_SIZE) {
+      const batch = orderEntries.slice(i, i + BATCH_SIZE);
 
-      // Find customer by email
-      const custEmail = firstRow["會員信箱"]?.trim() || firstRow["顧客信箱"]?.trim();
-      const custName = firstRow["顧客姓名"]?.trim();
-      const custPhone = firstRow["顧客手機"]?.trim();
+      for (const [orderNum, orderRows] of batch) {
+        try {
+          const firstRow = orderRows[0];
+          const orderDate = parseDate(firstRow["訂單建立時間"]);
+          const orderStatus = mapOrderStatus(firstRow["訂單處理狀態"]);
+          const shipped = isShippedFromText(firstRow["出貨狀態"]);
+          const total = parseNum(firstRow["訂單總計"]);
+          const shipmentFee = parseNum(firstRow["訂單運費"]);
+          const shippedAtDate = parseDate(firstRow["出貨單日期"]) || (shipped ? orderDate : null);
 
-      // Link to customer if email matches
-      let customerExtId: string | null = null;
-      if (custEmail) {
-        const existingCust = await db.select({ externalId: customers.externalId })
-          .from(customers)
-          .where(eq(customers.email, custEmail))
-          .limit(1);
-        if (existingCust.length > 0) {
-          customerExtId = existingCust[0].externalId;
+          const custEmail = firstRow["會員信箱"]?.trim() || firstRow["顧客信箱"]?.trim();
+          const custName = firstRow["顧客姓名"]?.trim();
+          const custPhone = firstRow["顧客手機"]?.trim();
+
+          let customerExtId: string | null = null;
+          if (custEmail) {
+            const existingCust = await db.select({ externalId: customers.externalId })
+              .from(customers)
+              .where(eq(customers.email, custEmail))
+              .limit(1);
+            if (existingCust.length > 0) {
+              customerExtId = existingCust[0].externalId;
+            }
+          }
+
+          const recipientName = firstRow["收件人姓名"]?.trim() || null;
+          const recipientPhone = firstRow["收件人手機"]?.trim() || null;
+          const recipientEmail = firstRow["收件人信箱"]?.trim() || null;
+          const orderSource = firstRow["訂單來源"] ? String(firstRow["訂單來源"]).trim() : null;
+          const paymentMethod = firstRow["付款方式"]?.trim() || null;
+          const shippingMethod = firstRow["配送方式"]?.trim() || null;
+          const shippingAddress = firstRow["收貨地址"] ? String(firstRow["收貨地址"]).trim() : null;
+          const shipmentNumber = firstRow["出貨單號碼"] ? String(firstRow["出貨單號碼"]).trim() : null;
+
+          await db.insert(orders).values({
+            externalId: orderNum,
+            customerExternalId: customerExtId,
+            customerName: custName || null,
+            customerEmail: custEmail || null,
+            customerPhone: custPhone || null,
+            orderStatus,
+            progress: firstRow["出貨狀態"]?.trim() || null,
+            total: String(total),
+            shipmentFee: String(shipmentFee),
+            salesRep: null,
+            isShipped: shipped,
+            shippedAt: shippedAtDate,
+            archived: false,
+            orderDate,
+            recipientName,
+            recipientPhone,
+            recipientEmail,
+            orderSource,
+            paymentMethod,
+            shippingMethod,
+            shippingAddress,
+            shipmentNumber,
+            rawData: firstRow,
+          }).onDuplicateKeyUpdate({
+            set: {
+              orderStatus,
+              progress: firstRow["出貨狀態"]?.trim() || null,
+              total: String(total),
+              shipmentFee: String(shipmentFee),
+              isShipped: shipped,
+              shippedAt: shippedAtDate,
+              recipientName,
+              recipientPhone,
+              recipientEmail,
+              orderSource,
+              paymentMethod,
+              shippingMethod,
+              shippingAddress,
+              shipmentNumber,
+              rawData: firstRow,
+            },
+          });
+          ordersProcessed++;
+
+          const [upsertedOrder] = await db.select({ id: orders.id }).from(orders).where(eq(orders.externalId, orderNum));
+          const resolvedOrderId = upsertedOrder?.id || null;
+
+          if (resolvedOrderId) {
+            await db.delete(orderItems).where(eq(orderItems.orderId, resolvedOrderId));
+          } else {
+            await db.delete(orderItems).where(eq(orderItems.orderExternalId, orderNum));
+          }
+
+          for (const itemRow of orderRows) {
+            const productName = itemRow["商品名稱"]?.trim();
+            if (!productName) continue;
+
+            await db.insert(orderItems).values({
+              orderId: resolvedOrderId,
+              orderExternalId: orderNum,
+              productName,
+              productSku: itemRow["商品SKU"]?.trim() || null,
+              productSpec: itemRow["商品規格"]?.trim() || null,
+              quantity: parseNum(itemRow["商品購買數量"]) || 1,
+              unitPrice: String(parseNum(itemRow["商品價格"])),
+            });
+            itemsProcessed++;
+          }
+        } catch (rowErr) {
+          errorCount++;
+          console.error("[ExcelImport] Order row error:", rowErr);
         }
       }
 
-      // Extract extended fields
-      const recipientName = firstRow["收件人姓名"]?.trim() || null;
-      const recipientPhone = firstRow["收件人手機"]?.trim() || null;
-      const recipientEmail = firstRow["收件人信箱"]?.trim() || null;
-      const orderSource = firstRow["訂單來源"] ? String(firstRow["訂單來源"]).trim() : null;
-      const paymentMethod = firstRow["付款方式"]?.trim() || null;
-      const shippingMethod = firstRow["配送方式"]?.trim() || null;
-      const shippingAddress = firstRow["收貨地址"] ? String(firstRow["收貨地址"]).trim() : null;
-      const shipmentNumber = firstRow["出貨單號碼"] ? String(firstRow["出貨單號碼"]).trim() : null;
-
-      // Upsert order
-      await db.insert(orders).values({
-        externalId: orderNum,
-        customerExternalId: customerExtId,
-        customerName: custName || null,
-        customerEmail: custEmail || null,
-        customerPhone: custPhone || null,
-        orderStatus,
-        progress: firstRow["出貨狀態"]?.trim() || null,
-        total: String(total),
-        shipmentFee: String(shipmentFee),
-        salesRep: null,
-        isShipped: shipped,
-        shippedAt: shippedAtDate,
-        archived: false,
-        orderDate,
-        recipientName,
-        recipientPhone,
-        recipientEmail,
-        orderSource,
-        paymentMethod,
-        shippingMethod,
-        shippingAddress,
-        shipmentNumber,
-        rawData: firstRow,
-      }).onDuplicateKeyUpdate({
-        set: {
-          orderStatus,
-          progress: firstRow["出貨狀態"]?.trim() || null,
-          total: String(total),
-          shipmentFee: String(shipmentFee),
-          isShipped: shipped,
-          shippedAt: shippedAtDate,
-          recipientName,
-          recipientPhone,
-          recipientEmail,
-          orderSource,
-          paymentMethod,
-          shippingMethod,
-          shippingAddress,
-          shipmentNumber,
-          rawData: firstRow,
-        },
-      });
-      ordersProcessed++;
-
-      // Get the orderId for the upserted order
-      const [upsertedOrder] = await db.select({ id: orders.id }).from(orders).where(eq(orders.externalId, orderNum));
-      const resolvedOrderId = upsertedOrder?.id || null;
-
-      // Delete existing order items for this order (in case of re-import)
-      if (resolvedOrderId) {
-        await db.delete(orderItems).where(eq(orderItems.orderId, resolvedOrderId));
-      } else {
-        await db.delete(orderItems).where(eq(orderItems.orderExternalId, orderNum));
-      }
-
-      // Insert order items
-      for (const itemRow of orderRows) {
-        const productName = itemRow["商品名稱"]?.trim();
-        if (!productName) continue;
-
-        await db.insert(orderItems).values({
-          orderId: resolvedOrderId,
-          orderExternalId: orderNum,
-          productName,
-          productSku: itemRow["商品SKU"]?.trim() || null,
-          productSpec: itemRow["商品規格"]?.trim() || null,
-          quantity: parseNum(itemRow["商品購買數量"]) || 1,
-          unitPrice: String(parseNum(itemRow["商品價格"])),
-        });
-        itemsProcessed++;
+      if (jobId) {
+        await updateJobProgress(db, jobId, ordersProcessed + errorCount, ordersProcessed, errorCount);
       }
     }
 
-    // Update customer stats after importing orders
     await updateCustomerStatsFromOrders(db);
 
     await db.update(syncLogs).set({
@@ -423,6 +574,10 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
       completedAt: new Date(),
     }).where(eq(syncLogs.id, Number(logId)));
 
+    if (jobId) {
+      await completeJob(db, jobId, ordersProcessed, errorCount, { ordersProcessed, itemsProcessed, errorCount });
+    }
+
     return { success: true, ordersProcessed, itemsProcessed };
   } catch (error: any) {
     await db.update(syncLogs).set({
@@ -430,13 +585,17 @@ export async function importOrdersFromExcel(buffer: Buffer): Promise<{
       errorMessage: error.message || String(error),
       completedAt: new Date(),
     }).where(eq(syncLogs.id, Number(logId)));
+    
+    if (jobId) {
+      await failJob(db, jobId, error.message || String(error));
+    }
     return { success: false, ordersProcessed: 0, itemsProcessed: 0, error: error.message || String(error) };
   }
 }
 
-// ===== Import Products from Excel =====
+// ===== Import Products from Excel (Background Job Mode) =====
 
-export async function importProductsFromExcel(buffer: Buffer): Promise<{
+export async function importProductsFromExcel(buffer: Buffer, jobId?: number): Promise<{
   success: boolean;
   processed: number;
   error?: string;
@@ -453,57 +612,69 @@ export async function importProductsFromExcel(buffer: Buffer): Promise<{
   try {
     const rows = parseExcel<ProductRow>(buffer);
     let processed = 0;
+    let errorCount = 0;
     let currentProductName = "";
 
-    for (const row of rows) {
-      // Product name may be empty for sub-spec rows; use the last known product name
-      const name = row["商品名稱"]?.trim();
-      if (name) {
-        currentProductName = name;
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+
+      for (const row of batch) {
+        try {
+          const name = row["商品名稱"]?.trim();
+          if (name) {
+            currentProductName = name;
+          }
+          const productName = name || currentProductName;
+          if (!productName) continue;
+
+          const sku = row["SKU"]?.trim();
+          const extId = sku || `product_${productName}_${processed}`;
+
+          await db.insert(products).values({
+            externalId: extId,
+            name: productName,
+            sku: sku || null,
+            barcode: row["商品條碼"]?.trim() || null,
+            category: row["官網分類"]?.trim() || null,
+            posCategory: row["POS分類"]?.trim() || null,
+            status: row["使用狀態"]?.trim() || null,
+            cost: (row["成本"] !== undefined && String(row["成本"]) !== "") ? String(parseNum(row["成本"])) : null,
+            price: (row["售價"] !== undefined && String(row["售價"]) !== "") ? String(parseNum(row["售價"])) : null,
+            originalPrice: (row["原價"] !== undefined && String(row["原價"]) !== "") ? String(parseNum(row["原價"])) : null,
+            profit: (row["利潤"] !== undefined && String(row["利潤"]) !== "") ? String(parseNum(row["利潤"])) : null,
+            stockQuantity: parseNum(row["庫存"]) || 0,
+            supplier: row["供應商"]?.trim() || null,
+            tags: row["商品標籤"]?.trim() || null,
+            salesChannel: row["銷售管道"]?.trim() || null,
+            rawData: row,
+          }).onDuplicateKeyUpdate({
+            set: {
+              name: productName,
+              barcode: row["商品條碼"]?.trim() || null,
+              category: row["官網分類"]?.trim() || null,
+              posCategory: row["POS分類"]?.trim() || null,
+              status: row["使用狀態"]?.trim() || null,
+              cost: (row["成本"] !== undefined && String(row["成本"]) !== "") ? String(parseNum(row["成本"])) : null,
+              price: (row["售價"] !== undefined && String(row["售價"]) !== "") ? String(parseNum(row["售價"])) : null,
+              originalPrice: (row["原價"] !== undefined && String(row["原價"]) !== "") ? String(parseNum(row["原價"])) : null,
+              profit: (row["利潤"] !== undefined && String(row["利潤"]) !== "") ? String(parseNum(row["利潤"])) : null,
+              stockQuantity: parseNum(row["庫存"]) || 0,
+              supplier: row["供應商"]?.trim() || null,
+              tags: row["商品標籤"]?.trim() || null,
+              salesChannel: row["銷售管道"]?.trim() || null,
+              rawData: row,
+            },
+          });
+          processed++;
+        } catch (rowErr) {
+          errorCount++;
+          console.error("[ExcelImport] Product row error:", rowErr);
+        }
       }
-      const productName = name || currentProductName;
-      if (!productName) continue;
 
-      const sku = row["SKU"]?.trim();
-      // Use SKU as unique ID if available, otherwise use name
-      const extId = sku || `product_${productName}_${processed}`;
-
-      await db.insert(products).values({
-        externalId: extId,
-        name: productName,
-        sku: sku || null,
-        barcode: row["商品條碼"]?.trim() || null,
-        category: row["官網分類"]?.trim() || null,
-        posCategory: row["POS分類"]?.trim() || null,
-        status: row["使用狀態"]?.trim() || null,
-        cost: (row["成本"] !== undefined && String(row["成本"]) !== "") ? String(parseNum(row["成本"])) : null,
-        price: (row["售價"] !== undefined && String(row["售價"]) !== "") ? String(parseNum(row["售價"])) : null,
-        originalPrice: (row["原價"] !== undefined && String(row["原價"]) !== "") ? String(parseNum(row["原價"])) : null,
-        profit: (row["利潤"] !== undefined && String(row["利潤"]) !== "") ? String(parseNum(row["利潤"])) : null,
-        stockQuantity: parseNum(row["庫存"]) || 0,
-        supplier: row["供應商"]?.trim() || null,
-        tags: row["商品標籤"]?.trim() || null,
-        salesChannel: row["銷售管道"]?.trim() || null,
-        rawData: row,
-      }).onDuplicateKeyUpdate({
-        set: {
-          name: productName,
-          barcode: row["商品條碼"]?.trim() || null,
-          category: row["官網分類"]?.trim() || null,
-          posCategory: row["POS分類"]?.trim() || null,
-          status: row["使用狀態"]?.trim() || null,
-          cost: (row["成本"] !== undefined && String(row["成本"]) !== "") ? String(parseNum(row["成本"])) : null,
-          price: (row["售價"] !== undefined && String(row["售價"]) !== "") ? String(parseNum(row["售價"])) : null,
-          originalPrice: (row["原價"] !== undefined && String(row["原價"]) !== "") ? String(parseNum(row["原價"])) : null,
-          profit: (row["利潤"] !== undefined && String(row["利潤"]) !== "") ? String(parseNum(row["利潤"])) : null,
-          stockQuantity: parseNum(row["庫存"]) || 0,
-          supplier: row["供應商"]?.trim() || null,
-          tags: row["商品標籤"]?.trim() || null,
-          salesChannel: row["銷售管道"]?.trim() || null,
-          rawData: row,
-        },
-      });
-      processed++;
+      if (jobId) {
+        await updateJobProgress(db, jobId, processed + errorCount, processed, errorCount);
+      }
     }
 
     await db.update(syncLogs).set({
@@ -512,6 +683,10 @@ export async function importProductsFromExcel(buffer: Buffer): Promise<{
       completedAt: new Date(),
     }).where(eq(syncLogs.id, Number(logId)));
 
+    if (jobId) {
+      await completeJob(db, jobId, processed, errorCount, { processed, errorCount });
+    }
+
     return { success: true, processed };
   } catch (error: any) {
     await db.update(syncLogs).set({
@@ -519,6 +694,10 @@ export async function importProductsFromExcel(buffer: Buffer): Promise<{
       errorMessage: error.message || String(error),
       completedAt: new Date(),
     }).where(eq(syncLogs.id, Number(logId)));
+    
+    if (jobId) {
+      await failJob(db, jobId, error.message || String(error));
+    }
     return { success: false, processed: 0, error: error.message || String(error) };
   }
 }
@@ -529,17 +708,14 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
   const allCustomers = await db.select().from(customers);
 
   for (const cust of allCustomers) {
-    // Match orders by email or externalId
     let custOrders: any[] = [];
     if (cust.externalId) {
       custOrders = await db.select().from(orders)
         .where(eq(orders.customerExternalId, cust.externalId));
     }
-    // Also try matching by email if no orders found by externalId
     if (custOrders.length === 0 && cust.email) {
       custOrders = await db.select().from(orders)
         .where(eq(orders.customerEmail, cust.email));
-      // Update customerExternalId for matched orders
       if (custOrders.length > 0) {
         await db.update(orders)
           .set({ customerExternalId: cust.externalId })
@@ -547,7 +723,6 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
       }
     }
 
-    // Backfill customerId on matched orders
     if (custOrders.length > 0) {
       const orderIds = custOrders.map((o: any) => o.id);
       await db.update(orders)
@@ -567,7 +742,6 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
       lastShipmentAt = dates[0];
     }
 
-    // If no shipped orders, use the latest order date as a fallback for lifecycle calculation
     if (!lastShipmentAt && validOrders.length > 0) {
       const orderDates = validOrders
         .map((o: any) => o.orderDate)
@@ -586,7 +760,6 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
 
     const lifecycle = classifyCustomer(lastShipmentAt, totalOrders, cust.registeredAt);
 
-    // Compute lastPurchaseDate and lastPurchaseAmount
     let lastPurchaseDate: Date | null = null;
     let lastPurchaseAmount: number | null = null;
     if (validOrders.length > 0) {
@@ -621,12 +794,7 @@ interface LogisticsRow {
   "物流狀態"?: string;
 }
 
-/**
- * Import logistics Excel file.
- * Matches "PayNow物流單號" to orders.shipmentNumber,
- * then writes "配送編號" → deliveryNumber and "物流狀態" → logisticsStatus.
- */
-export async function importLogisticsExcel(buffer: Buffer) {
+export async function importLogisticsExcel(buffer: Buffer, jobId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -640,41 +808,53 @@ export async function importLogisticsExcel(buffer: Buffer) {
   let matched = 0;
   let unmatched = 0;
 
-  for (const row of rows) {
-    const payNowNumber = row["PayNow物流單號"] ? String(row["PayNow物流單號"]).trim() : null;
-    const deliveryNumber = row["配送編號"] ? String(row["配送編號"]).trim() : null;
-    const logisticsStatus = row["物流狀態"] ? String(row["物流狀態"]).trim() : null;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
 
-    if (!payNowNumber) {
-      unmatched++;
-      continue;
+    for (const row of batch) {
+      const payNowNumber = row["PayNow物流單號"] ? String(row["PayNow物流單號"]).trim() : null;
+      const deliveryNumber = row["配送編號"] ? String(row["配送編號"]).trim() : null;
+      const logisticsStatus = row["物流狀態"] ? String(row["物流狀態"]).trim() : null;
+
+      if (!payNowNumber) {
+        unmatched++;
+        continue;
+      }
+
+      const result = await db.update(orders)
+        .set({
+          deliveryNumber,
+          logisticsStatus,
+        })
+        .where(eq(orders.shipmentNumber, payNowNumber));
+
+      if (result[0] && (result[0] as any).affectedRows > 0) {
+        matched++;
+      } else {
+        unmatched++;
+      }
     }
 
-    // Match by shipmentNumber (出貨單號碼) = PayNow物流單號
-    const result = await db.update(orders)
-      .set({
-        deliveryNumber,
-        logisticsStatus,
-      })
-      .where(eq(orders.shipmentNumber, payNowNumber));
-
-    if (result[0] && (result[0] as any).affectedRows > 0) {
-      matched++;
-    } else {
-      unmatched++;
+    if (jobId) {
+      await updateJobProgress(db, jobId, matched + unmatched, matched, unmatched);
     }
   }
 
-  // Log the import
   await db.insert(syncLogs).values({
     syncType: "logistics_excel",
     status: "success",
     recordsProcessed: matched,
   });
 
-  return {
+  const resultData = {
     total: rows.length,
     matched,
     unmatched,
   };
+
+  if (jobId) {
+    await completeJob(db, jobId, matched, unmatched, resultData);
+  }
+
+  return resultData;
 }

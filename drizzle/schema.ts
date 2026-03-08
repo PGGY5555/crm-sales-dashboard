@@ -226,3 +226,27 @@ export const auditLogs = mysqlTable("auditLogs", {
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
+
+/**
+ * Import Jobs - track background import task status and progress
+ */
+export const importJobs = mysqlTable("importJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  userName: varchar("userName", { length: 255 }),
+  fileType: varchar("fileType", { length: 32 }).notNull(), // customers, orders, products, logistics
+  fileName: varchar("fileName", { length: 512 }),
+  status: mysqlEnum("status", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
+  totalRows: int("totalRows").default(0),
+  processedRows: int("processedRows").default(0),
+  successRows: int("successRows").default(0),
+  errorRows: int("errorRows").default(0),
+  errorMessage: text("errorMessage"),
+  result: json("result"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type ImportJob = typeof importJobs.$inferSelect;
+export type InsertImportJob = typeof importJobs.$inferInsert;

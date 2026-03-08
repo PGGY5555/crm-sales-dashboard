@@ -41,6 +41,7 @@ import { PERMISSION_KEYS, type PermissionKey } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
 import { invokeLLM } from "./_core/llm";
+import { getImportJobStatus, getActiveImportJobs } from "./excelImport";
 
 const dateRangeSchema = z.object({
   from: z.date().optional(),
@@ -584,6 +585,23 @@ ${contextData.topSalesReps?.map((r, i) => `${i + 1}. ${r.salesRep}: 營收 ${r.r
           console.error("[AI Chat] Error:", error);
           return { content: "抱歉，AI 服務暫時無法使用。請稍後再試。" };
         }
+      }),
+  }),
+
+  importJob: router({
+    /** Get status of a specific import job */
+    status: protectedProcedure
+      .input(z.object({ jobId: z.number() }))
+      .query(async ({ input }) => {
+        const job = await getImportJobStatus(input.jobId);
+        return job;
+      }),
+
+    /** Get all recent import jobs */
+    list: protectedProcedure
+      .query(async () => {
+        const jobs = await getActiveImportJobs();
+        return jobs;
       }),
   }),
 });
