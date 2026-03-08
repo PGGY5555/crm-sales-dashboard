@@ -12,7 +12,7 @@ import { importCustomersFromExcel, importOrdersFromExcel, importProductsFromExce
 import { sdk } from "./sdk";
 import { COOKIE_NAME } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
-import { getUserByOpenId } from "../db";
+import { getUserByOpenId, logAudit } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -81,6 +81,7 @@ async function startServer() {
         return;
       }
       let result;
+      const typeLabels: Record<string, string> = { customers: '顧客列表', orders: '訂單列表', products: '商品列表', logistics: '訂單物流檔' };
       switch (fileType) {
         case "customers":
           result = await importCustomersFromExcel(req.file.buffer);
@@ -95,6 +96,15 @@ async function startServer() {
           result = await importLogisticsExcel(req.file.buffer);
           break;
       }
+      // Log the import action
+      await logAudit({
+        userId: dbUser.id,
+        userName: dbUser.name || dbUser.email || 'unknown',
+        action: 'excel_import',
+        category: 'data_sync',
+        description: `Excel 匯入${typeLabels[fileType] || fileType}`,
+        details: (result as Record<string, unknown>) || {},
+      }).catch(() => {});
       res.json(result);
     } catch (error: any) {
       console.error("[Excel Upload] Error:", error);

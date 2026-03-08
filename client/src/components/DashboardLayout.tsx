@@ -23,7 +23,7 @@ import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PermissionKey } from "@shared/permissions";
-import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw, UserCog, FileText, Shield } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw, UserCog, FileText, Shield, ScrollText } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -39,6 +39,7 @@ const menuItems: { icon: any; label: string; path: string; adminOnly: boolean; p
   { icon: MessageSquare, label: "AI 洞察", path: "/ai-chat", adminOnly: false, permKey: "ai_chat" },
   { icon: RefreshCw, label: "數據同步", path: "/sync", adminOnly: false, permKey: "data_sync" },
   { icon: Shield, label: "使用者管理", path: "/user-management", adminOnly: true },
+  { icon: ScrollText, label: "操作日誌", path: "/audit-log", adminOnly: true },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

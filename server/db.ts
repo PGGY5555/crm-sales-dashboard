@@ -1,6 +1,6 @@
-import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count, isNotNull, ne } from "drizzle-orm";
+import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count, isNotNull, ne, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, customers, orders, syncLogs, settings, orderItems, products, userPermissions } from "../drizzle/schema";
+import { InsertUser, users, customers, orders, syncLogs, settings, orderItems, products, userPermissions, auditLogs } from "../drizzle/schema";
 import { getDefaultPermissions, getAllPermissions, type PermissionKey } from "../shared/permissions";
 import { encrypt, decrypt, maskToken } from "./crypto";
 import { ENV } from './_core/env';
@@ -161,6 +161,113 @@ export async function updateUserRole(userId: number, role: "user" | "admin") {
   if (!db) throw new Error("Database not available");
   await db.update(users).set({ role }).where(eq(users.id, userId));
   return { success: true };
+}
+
+/** Pre-create a user by email (before they log in) */
+export async function preCreateUser(email: string, role: "user" | "admin", createdBy: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Check if email already exists
+  const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (existing.length > 0) {
+    throw new Error("此 Email 已存在於系統中");
+  }
+  // Create user with a placeholder openId (will be updated on first login)
+  const placeholderOpenId = `pending_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  await db.insert(users).values({
+    openId: placeholderOpenId,
+    email,
+    role,
+    name: email.split("@")[0],
+  });
+  const newUser = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return newUser[0];
+}
+
+// ===== Audit Log Helpers =====
+
+export interface AuditLogEntry {
+  userId?: number;
+  userName?: string;
+  userEmail?: string;
+  action: string;
+  category: string;
+  description?: string;
+  details?: Record<string, unknown>;
+  ipAddress?: string;
+}
+
+/** Record an audit log entry */
+export async function logAudit(entry: AuditLogEntry) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[AuditLog] Database not available, skipping log:", entry.action);
+    return;
+  }
+  try {
+    await db.insert(auditLogs).values({
+      userId: entry.userId ?? null,
+      userName: entry.userName ?? null,
+      userEmail: entry.userEmail ?? null,
+      action: entry.action,
+      category: entry.category,
+      description: entry.description ?? null,
+      details: entry.details ?? null,
+      ipAddress: entry.ipAddress ?? null,
+    });
+  } catch (err) {
+    console.error("[AuditLog] Failed to write log:", err);
+  }
+}
+
+/** Query audit logs with pagination and filters */
+export async function getAuditLogs(opts: {
+  page?: number;
+  pageSize?: number;
+  category?: string;
+  action?: string;
+  userId?: number;
+  dateFrom?: Date;
+  dateTo?: Date;
+  search?: string;
+}) {
+  const db = await getDb();
+  if (!db) return { logs: [], total: 0 };
+  const page = opts.page ?? 1;
+  const pageSize = opts.pageSize ?? 50;
+  const offset = (page - 1) * pageSize;
+
+  const conditions: SQL[] = [];
+  if (opts.category) conditions.push(eq(auditLogs.category, opts.category));
+  if (opts.action) conditions.push(eq(auditLogs.action, opts.action));
+  if (opts.userId) conditions.push(eq(auditLogs.userId, opts.userId));
+  if (opts.dateFrom) conditions.push(gte(auditLogs.createdAt, opts.dateFrom));
+  if (opts.dateTo) conditions.push(lte(auditLogs.createdAt, opts.dateTo));
+  if (opts.search) {
+    conditions.push(
+      or(
+        like(auditLogs.description, `%${opts.search}%`),
+        like(auditLogs.userName, `%${opts.search}%`),
+        like(auditLogs.userEmail, `%${opts.search}%`)
+      )!
+    );
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [logs, countResult] = await Promise.all([
+    db.select().from(auditLogs)
+      .where(whereClause)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(pageSize)
+      .offset(offset),
+    db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(whereClause),
+  ]);
+
+  return {
+    logs,
+    total: Number(countResult[0]?.count ?? 0),
+  };
 }
 
 // ===== Dashboard Query Helpers =====

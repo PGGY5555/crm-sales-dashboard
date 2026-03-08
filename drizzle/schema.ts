@@ -207,3 +207,22 @@ export const userPermissions = mysqlTable("userPermissions", {
 
 export type UserPermission = typeof userPermissions.$inferSelect;
 export type InsertUserPermission = typeof userPermissions.$inferInsert;
+
+/**
+ * Audit Logs - records all critical operations for security tracking
+ */
+export const auditLogs = mysqlTable("auditLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  userName: varchar("userName", { length: 255 }),
+  userEmail: varchar("userEmail", { length: 320 }),
+  action: varchar("action", { length: 128 }).notNull(),
+  category: varchar("category", { length: 64 }).notNull(),
+  description: text("description"),
+  details: json("details"),
+  ipAddress: varchar("ipAddress", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;

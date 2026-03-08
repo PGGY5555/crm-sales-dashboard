@@ -33,6 +33,9 @@ import {
   saveUserPermissions,
   checkUserPermission,
   updateUserRole,
+  preCreateUser,
+  logAudit,
+  getAuditLogs,
 } from "./db";
 import { PERMISSION_KEYS, type PermissionKey } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
@@ -143,6 +146,11 @@ export const appRouter = router({
         }
         await saveSetting("shopnex_api_token", input.apiToken, ctx.user.id);
         await saveSetting("shopnex_app_name", input.appName, ctx.user.id);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "save_setting", category: "系統設定",
+          description: `更新 API 憑證 (App Name: ${input.appName})`,
+        });
         return { success: true };
       }),
   }),
@@ -159,7 +167,14 @@ export const appRouter = router({
         if (!creds) {
           return { success: false, error: "尚未設定 API 憑證，請先在設定頁面儲存 API Token 和 App Name" };
         }
-        return syncFromShopnex(creds.apiToken, creds.appName);
+        const result = await syncFromShopnex(creds.apiToken, creds.appName);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "sync_api", category: "數據同步",
+          description: `執行 API 同步 (${result.success ? '成功' : '失敗'})`,
+          details: result,
+        });
+        return result;
       }),
 
     /** Clear all imported data (admin only) */
@@ -171,7 +186,14 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可清除資料" });
         }
-        return clearAllData(input.targets);
+        const result = await clearAllData(input.targets);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "clear_data", category: "資料刪除",
+          description: `清除資料: ${input.targets.join(', ')}`,
+          details: { targets: input.targets },
+        });
+        return result;
       }),
   }),
 
@@ -247,7 +269,14 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
         }
-        return batchDeleteCustomers(input.ids);
+        const result = await batchDeleteCustomers(input.ids);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "delete_customers", category: "資料刪除",
+          description: `批次刪除 ${input.ids.length} 筆客戶資料`,
+          details: { count: input.ids.length, ids: input.ids },
+        });
+        return result;
       }),
 
     detail: protectedProcedure
@@ -280,7 +309,7 @@ export const appRouter = router({
         blacklisted: z.string().nullable().optional(),
         lineUid: z.string().nullable().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         // Filter out undefined fields
         const updateData: Record<string, any> = {};
@@ -289,6 +318,12 @@ export const appRouter = router({
         }
         const result = await updateCustomer(id, updateData);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "找不到該客戶" });
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "update_customer", category: "客戶管理",
+          description: `更新客戶資料 #${id}`,
+          details: { customerId: id, updatedFields: Object.keys(updateData) },
+        });
         return result;
       }),
   }),
@@ -345,7 +380,14 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
         }
-        return batchDeleteOrders(input.ids);
+        const result = await batchDeleteOrders(input.ids);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "delete_orders", category: "資料刪除",
+          description: `批次刪除 ${input.ids.length} 筆訂單資料`,
+          details: { count: input.ids.length, ids: input.ids },
+        });
+        return result;
       }),
   }),
 
@@ -366,11 +408,17 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
         }
-        // Cannot remove yourself
         if (input.userId === ctx.user.id) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "無法移除自己的帳號" });
         }
-        return removeUser(input.userId);
+        const result = await removeUser(input.userId);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "remove_user", category: "使用者管理",
+          description: `移除使用者 #${input.userId}`,
+          details: { targetUserId: input.userId },
+        });
+        return result;
       }),
 
     /** Update user role */
@@ -383,7 +431,14 @@ export const appRouter = router({
         if (input.userId === ctx.user.id) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "無法修改自己的角色" });
         }
-        return updateUserRole(input.userId, input.role);
+        const result = await updateUserRole(input.userId, input.role);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "update_role", category: "使用者管理",
+          description: `更新使用者 #${input.userId} 角色為 ${input.role}`,
+          details: { targetUserId: input.userId, newRole: input.role },
+        });
+        return result;
       }),
 
     /** Get permissions for a user */
@@ -406,19 +461,70 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
         }
-        return saveUserPermissions(input.userId, input.permissions, ctx.user.id);
+        const result = await saveUserPermissions(input.userId, input.permissions, ctx.user.id);
+        const enabledPerms = Object.entries(input.permissions).filter(([, v]) => v).map(([k]) => k);
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "update_permissions", category: "使用者管理",
+          description: `更新使用者 #${input.userId} 權限 (${enabledPerms.length} 項已啟用)`,
+          details: { targetUserId: input.userId, enabledPermissions: enabledPerms },
+        });
+        return result;
       }),
 
     /** Get my permissions (for current logged-in user) */
     myPermissions: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role === "admin") {
-        // Admin has all permissions
         const allPerms: Record<string, boolean> = {};
         for (const key of PERMISSION_KEYS) allPerms[key] = true;
         return allPerms;
       }
       return getUserPermissions(ctx.user.id);
     }),
+
+    /** Pre-create a user by email */
+    preCreate: protectedProcedure
+      .input(z.object({
+        email: z.string().email(),
+        role: z.enum(["user", "admin"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可新增使用者" });
+        }
+        const newUser = await preCreateUser(input.email, input.role, ctx.user.id);
+        await logAudit({
+          userId: ctx.user.id,
+          userName: ctx.user.name ?? undefined,
+          userEmail: ctx.user.email ?? undefined,
+          action: "create_user",
+          category: "使用者管理",
+          description: `新增使用者: ${input.email} (角色: ${input.role})`,
+          details: { targetEmail: input.email, role: input.role },
+        });
+        return newUser;
+      }),
+  }),
+
+  /** Audit logs */
+  auditLog: router({
+    list: protectedProcedure
+      .input(z.object({
+        page: z.number().optional(),
+        pageSize: z.number().optional(),
+        category: z.string().optional(),
+        action: z.string().optional(),
+        userId: z.number().optional(),
+        dateFrom: z.date().optional(),
+        dateTo: z.date().optional(),
+        search: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可查看操作日誌" });
+        }
+        return getAuditLogs(input);
+      }),
   }),
 
   /** AI chat for sales insights */

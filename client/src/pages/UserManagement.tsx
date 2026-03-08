@@ -4,6 +4,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -39,7 +41,13 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Users, Shield, Trash2, Settings, Loader2 } from "lucide-react";
+import { Users, Shield, Trash2, Loader2, UserPlus, Mail, Clock, MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PERMISSION_GROUPS, type PermissionKey } from "@shared/permissions";
 
 export default function UserManagement() {
@@ -49,6 +57,9 @@ export default function UserManagement() {
   const [showRemoveDialog, setShowRemoveDialog] = useState(false);
   const [removeTargetId, setRemoveTargetId] = useState<number | null>(null);
   const [removeTargetName, setRemoveTargetName] = useState("");
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addEmail, setAddEmail] = useState("");
+  const [addRole, setAddRole] = useState<"user" | "admin">("user");
 
   const usersQuery = trpc.userMgmt.list.useQuery();
   const removeMutation = trpc.userMgmt.remove.useMutation({
@@ -63,6 +74,16 @@ export default function UserManagement() {
     onSuccess: () => {
       toast.success("角色已更新");
       usersQuery.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const preCreateMutation = trpc.userMgmt.preCreate.useMutation({
+    onSuccess: () => {
+      toast.success("使用者已新增");
+      usersQuery.refetch();
+      setShowAddDialog(false);
+      setAddEmail("");
+      setAddRole("user");
     },
     onError: (err) => toast.error(err.message),
   });
@@ -88,6 +109,14 @@ export default function UserManagement() {
     setShowPermDialog(true);
   };
 
+  const handleAddUser = () => {
+    if (!addEmail.trim()) {
+      toast.error("請輸入 Email");
+      return;
+    }
+    preCreateMutation.mutate({ email: addEmail.trim(), role: addRole });
+  };
+
   if (currentUser?.role !== "admin") {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -98,9 +127,15 @@ export default function UserManagement() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">使用者管理</h1>
-        <p className="text-muted-foreground mt-1">管理系統使用者帳號與權限設定</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">使用者管理</h1>
+          <p className="text-muted-foreground mt-1">管理系統使用者帳號與權限設定</p>
+        </div>
+        <Button onClick={() => setShowAddDialog(true)} className="w-full sm:w-auto">
+          <UserPlus className="h-4 w-4 mr-2" />
+          新增使用者
+        </Button>
       </div>
 
       <Card>
@@ -116,107 +151,240 @@ export default function UserManagement() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[50px]">#</TableHead>
-                    <TableHead>名稱</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>登入方式</TableHead>
-                    <TableHead>角色</TableHead>
-                    <TableHead>最後登入</TableHead>
-                    <TableHead>建立時間</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {usersQuery.data?.map((u, idx) => {
-                    const isCurrentUser = u.id === currentUser?.id;
-                    const isOwner = u.openId === import.meta.env.VITE_OWNER_OPEN_ID;
-                    return (
-                      <TableRow key={u.id}>
-                        <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell className="font-medium">
-                          {u.name || "-"}
-                          {isCurrentUser && (
-                            <Badge variant="outline" className="ml-2 text-xs">你</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>{u.email || "-"}</TableCell>
-                        <TableCell>{u.loginMethod || "-"}</TableCell>
-                        <TableCell>
-                          {isCurrentUser || isOwner ? (
-                            <Badge variant={u.role === "admin" ? "default" : "secondary"}>
-                              {u.role === "admin" ? "管理員" : "使用者"}
-                            </Badge>
-                          ) : (
-                            <Select
-                              value={u.role}
-                              onValueChange={(val) => handleRoleChange(u.id, val as "user" | "admin")}
-                            >
-                              <SelectTrigger className="w-[100px] h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="admin">管理員</SelectItem>
-                                <SelectItem value="user">使用者</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleString("zh-TW") : "-"}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {u.createdAt ? new Date(u.createdAt).toLocaleString("zh-TW") : "-"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {u.role !== "admin" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openPermissions(u.id)}
-                                title="權限設定"
-                              >
-                                <Shield className="h-4 w-4" />
-                              </Button>
+            <>
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[50px]">#</TableHead>
+                      <TableHead>名稱</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>登入方式</TableHead>
+                      <TableHead>角色</TableHead>
+                      <TableHead>最後登入</TableHead>
+                      <TableHead>建立時間</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {usersQuery.data?.map((u, idx) => {
+                      const isCurrentUser = u.id === currentUser?.id;
+                      const isOwner = u.openId === import.meta.env.VITE_OWNER_OPEN_ID;
+                      const isPending = u.openId?.startsWith("pending_");
+                      return (
+                        <TableRow key={u.id}>
+                          <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
+                          <TableCell className="font-medium">
+                            {u.name || "-"}
+                            {isCurrentUser && (
+                              <Badge variant="outline" className="ml-2 text-xs">你</Badge>
                             )}
-                            {!isCurrentUser && !isOwner && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => handleRemove(u.id, u.name || "")}
-                                title="移除使用者"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                            {isPending && (
+                              <Badge variant="secondary" className="ml-2 text-xs">
+                                <Clock className="h-3 w-3 mr-1" />
+                                待登入
+                              </Badge>
                             )}
-                          </div>
+                          </TableCell>
+                          <TableCell>{u.email || "-"}</TableCell>
+                          <TableCell>{isPending ? "-" : (u.loginMethod || "-")}</TableCell>
+                          <TableCell>
+                            {isCurrentUser || isOwner ? (
+                              <Badge variant={u.role === "admin" ? "default" : "secondary"}>
+                                {u.role === "admin" ? "管理員" : "使用者"}
+                              </Badge>
+                            ) : (
+                              <Select
+                                value={u.role}
+                                onValueChange={(val) => handleRoleChange(u.id, val as "user" | "admin")}
+                              >
+                                <SelectTrigger className="w-[100px] h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="admin">管理員</SelectItem>
+                                  <SelectItem value="user">使用者</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleString("zh-TW") : "-"}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {u.createdAt ? new Date(u.createdAt).toLocaleString("zh-TW") : "-"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {u.role !== "admin" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => openPermissions(u.id)}
+                                  title="權限設定"
+                                >
+                                  <Shield className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {!isCurrentUser && !isOwner && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => handleRemove(u.id, u.name || "")}
+                                  title="移除使用者"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {(!usersQuery.data || usersQuery.data.length === 0) && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          尚無使用者資料
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
-                  {(!usersQuery.data || usersQuery.data.length === 0) && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                        尚無使用者資料
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Mobile card layout */}
+              <div className="md:hidden space-y-3">
+                {usersQuery.data?.map((u) => {
+                  const isCurrentUser = u.id === currentUser?.id;
+                  const isOwner = u.openId === import.meta.env.VITE_OWNER_OPEN_ID;
+                  const isPending = u.openId?.startsWith("pending_");
+                  return (
+                    <div key={u.id} className="border rounded-lg p-4 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{u.name || "-"}</span>
+                            {isCurrentUser && (
+                              <Badge variant="outline" className="text-xs">你</Badge>
+                            )}
+                            {isPending && (
+                              <Badge variant="secondary" className="text-xs">
+                                <Clock className="h-3 w-3 mr-1" />
+                                待登入
+                              </Badge>
+                            )}
+                            <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">
+                              {u.role === "admin" ? "管理員" : "使用者"}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Mail className="h-3 w-3" />
+                            {u.email || "-"}
+                          </div>
+                        </div>
+                        {/* Mobile action menu */}
+                        {!isCurrentUser && !isOwner && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {u.role !== "admin" && (
+                                <DropdownMenuItem onClick={() => openPermissions(u.id)}>
+                                  <Shield className="h-4 w-4 mr-2" />
+                                  權限設定
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem onClick={() => handleRoleChange(u.id, u.role === "admin" ? "user" : "admin")}>
+                                <Users className="h-4 w-4 mr-2" />
+                                {u.role === "admin" ? "設為使用者" : "設為管理員"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => handleRemove(u.id, u.name || "")}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                移除使用者
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>登入方式: {isPending ? "-" : (u.loginMethod || "-")}</span>
+                        <span>最後登入: {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleDateString("zh-TW") : "-"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(!usersQuery.data || usersQuery.data.length === 0) && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    尚無使用者資料
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
       <p className="text-sm text-muted-foreground">
-        使用者透過 Manus OAuth 登入後會自動出現在列表中。管理員擁有所有權限，不需另外設定。
-        一般使用者需要透過「權限設定」來開放各功能的存取權限。
+        使用者透過 Manus OAuth 登入後會自動出現在列表中。您也可以點擊「新增使用者」預先建立帳號並設定權限。
+        管理員擁有所有權限，不需另外設定。一般使用者需要透過「權限設定」來開放各功能的存取權限。
       </p>
+
+      {/* Add User Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              新增使用者
+            </DialogTitle>
+            <DialogDescription>
+              輸入使用者的 Email 預先建立帳號。該使用者首次登入時，系統會自動匹配並啟用帳號。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="add-email">Email 地址</Label>
+              <Input
+                id="add-email"
+                type="email"
+                placeholder="user@example.com"
+                value={addEmail}
+                onChange={(e) => setAddEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddUser()}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-role">角色</Label>
+              <Select value={addRole} onValueChange={(v) => setAddRole(v as "user" | "admin")}>
+                <SelectTrigger id="add-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">使用者</SelectItem>
+                  <SelectItem value="admin">管理員</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleAddUser} disabled={preCreateMutation.isPending}>
+              {preCreateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              新增
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Permission Dialog */}
       {showPermDialog && selectedUserId && (
