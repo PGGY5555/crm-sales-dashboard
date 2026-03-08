@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, ExternalLink } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -521,6 +522,44 @@ export default function CustomerManagement() {
         </Card>
       )}
 
+      {/* Aggregate Stats - only shown when filters are active */}
+      {data?.aggregateStats && (
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 text-sm">
+              <div className="space-y-1">
+                <p className="text-muted-foreground">總計筆數</p>
+                <p className="text-lg font-bold">{data.aggregateStats.totalCount.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">黑名單數</p>
+                <p className="text-lg font-bold text-red-600">{data.aggregateStats.blacklistCount.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">消費 0 次</p>
+                <p className="text-lg font-bold">{data.aggregateStats.orders0.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">消費 1 次</p>
+                <p className="text-lg font-bold">{data.aggregateStats.orders1.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">消費 2 次</p>
+                <p className="text-lg font-bold">{data.aggregateStats.orders2.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">消費 3 次以上</p>
+                <p className="text-lg font-bold">{data.aggregateStats.orders3plus.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">累消金額總計</p>
+                <p className="text-lg font-bold">${data.aggregateStats.totalSpentSum.toLocaleString()}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Results Table */}
       <Card>
         <CardContent className="p-0">
@@ -585,9 +624,21 @@ export default function CustomerManagement() {
                       <TableCell className="text-sm">{c.phone || "-"}</TableCell>
                       <TableCell><Badge variant="outline" className="text-xs">{c.memberLevel || "-"}</Badge></TableCell>
                       <TableCell>
-                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${lifecycleBadgeColor(c.lifecycle || "O")}`}>
-                          {c.lifecycle || "O"}
-                        </span>
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className={`px-1.5 py-0.5 rounded text-xs font-medium cursor-help ${lifecycleBadgeColor(c.lifecycle || "O")}`}>
+                                {c.lifecycle || "O"}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs space-y-1">
+                              <p className="font-semibold">{LIFECYCLE_OPTIONS.find(o => o.value === (c.lifecycle || "O"))?.label || c.lifecycle}</p>
+                              <p>180天內出貨：{(c as any).ordersIn6m ?? 0} 次</p>
+                              <p>180-365天出貨：{(c as any).ordersIn6to12m ?? 0} 次</p>
+                              <p>歷史總訂單：{c.totalOrders ?? 0} 次</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </TableCell>
                       <TableCell className="text-sm">
                         <span className={c.blacklisted === "是" ? "text-red-600 font-medium" : ""}>

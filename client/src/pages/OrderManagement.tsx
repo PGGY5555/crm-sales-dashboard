@@ -365,6 +365,54 @@ export default function OrderManagement() {
         </Card>
       )}
 
+      {/* Aggregate Stats - only shown when filters are active */}
+      {data?.aggregateStats && (
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="space-y-1">
+                <p className="text-muted-foreground">總計筆數</p>
+                <p className="text-lg font-bold">{data.aggregateStats.totalCount.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">黑名單數</p>
+                <p className="text-lg font-bold text-red-600">{data.aggregateStats.blacklistCount.toLocaleString()} 筆</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground">訂單金額總計</p>
+                <p className="text-lg font-bold">${data.aggregateStats.totalAmount.toLocaleString()}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {/* Shipping Distribution */}
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">配送方式統計</p>
+                <div className="space-y-1">
+                  {data.aggregateStats.shippingDistribution.map((s: any) => (
+                    <div key={s.method} className="flex justify-between text-sm border-b pb-1">
+                      <span>{s.method}</span>
+                      <span className="font-medium">{s.count.toLocaleString()} 筆</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Payment Distribution */}
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">付款方式統計</p>
+                <div className="space-y-1">
+                  {data.aggregateStats.paymentDistribution.map((p: any) => (
+                    <div key={p.method} className="flex justify-between text-sm border-b pb-1">
+                      <span>{p.method}</span>
+                      <span className="font-medium">${p.totalAmount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Results Table */}
       <Card>
         <CardContent className="p-0">

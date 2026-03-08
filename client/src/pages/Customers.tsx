@@ -20,7 +20,9 @@ import {
   TrendingUp,
   RefreshCw,
   CalendarDays,
+  ArrowRight,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   PieChart,
   Pie,
@@ -52,6 +54,13 @@ export default function Customers() {
   const [page, setPage] = useState(0);
   const [referenceDate, setReferenceDate] = useState<Date>(new Date());
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [transitionResult, setTransitionResult] = useState<{
+    distribution: Record<string, number>;
+    transitions: Record<string, number>;
+    updated: number;
+    total: number;
+  } | null>(null);
+  const [showTransitionDialog, setShowTransitionDialog] = useState(false);
 
   const queryInput = useMemo(() => ({
     page,
@@ -78,12 +87,14 @@ export default function Customers() {
   const { data: registrationTrend, isLoading: trendLoading } =
     trpc.dashboard.customerRegistrationTrend.useQuery(lifecycleFilter);
 
+  const LIFECYCLE_LABELS: Record<string, string> = {
+    N: "N 新鮮客", A: "A 活躍客", S: "S 沉睡客", L: "L 流失客", D: "D 封存客", O: "O 機會客",
+  };
+
   const recalculateMutation = trpc.dashboard.recalculateLifecycle.useMutation({
     onSuccess: (result) => {
-      toast.success(`生命週期重算完成`, {
-        description: `共更新 ${result.updated.toLocaleString()} 筆客戶。N:${result.distribution.N} A:${result.distribution.A} S:${result.distribution.S} L:${result.distribution.L} D:${result.distribution.D} O:${result.distribution.O}`,
-        duration: 8000,
-      });
+      setTransitionResult(result);
+      setShowTransitionDialog(true);
       // Invalidate all dashboard queries to refresh data
       utils.dashboard.invalidate();
     },
@@ -621,6 +632,61 @@ export default function Customers() {
           )}
         </CardContent>
       </Card>
+      {/* Transition Summary Dialog */}
+      <Dialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>生命週期重算完成</DialogTitle>
+            <DialogDescription>
+              共更新 {transitionResult?.updated.toLocaleString()} 筆客戶（總計 {transitionResult?.total.toLocaleString()} 筆）
+            </DialogDescription>
+          </DialogHeader>
+          {transitionResult && (
+            <div className="space-y-4">
+              {/* Distribution */}
+              <div>
+                <h4 className="text-sm font-semibold mb-2">分類結果</h4>
+                <div className="grid grid-cols-3 gap-2">
+                  {["N", "A", "S", "L", "D", "O"].map((lc) => {
+                    const opt = LIFECYCLE_OPTIONS.find((o) => o.value === lc);
+                    return (
+                      <div key={lc} className="flex items-center justify-between rounded-md border px-3 py-2">
+                        <span className="text-sm font-medium" style={{ color: opt?.color }}>{LIFECYCLE_LABELS[lc] || lc}</span>
+                        <span className="text-sm font-bold">{(transitionResult.distribution[lc] || 0).toLocaleString()}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Transitions */}
+              {Object.keys(transitionResult.transitions).length > 0 ? (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">分類變動摘要</h4>
+                  <div className="space-y-1.5">
+                    {Object.entries(transitionResult.transitions)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([key, count]) => {
+                        const [from, to] = key.split("→");
+                        const fromOpt = LIFECYCLE_OPTIONS.find((o) => o.value === from);
+                        const toOpt = LIFECYCLE_OPTIONS.find((o) => o.value === to);
+                        return (
+                          <div key={key} className="flex items-center gap-2 rounded-md border px-3 py-2">
+                            <span className="text-sm font-medium" style={{ color: fromOpt?.color }}>{LIFECYCLE_LABELS[from] || from}</span>
+                            <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className="text-sm font-medium" style={{ color: toOpt?.color }}>{LIFECYCLE_LABELS[to] || to}</span>
+                            <span className="ml-auto text-sm font-bold">{count.toLocaleString()} 人</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">所有客戶的生命週期分類未變動</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

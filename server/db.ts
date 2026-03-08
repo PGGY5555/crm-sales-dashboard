@@ -963,9 +963,77 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
     .limit(limit)
     .offset(page * limit);
 
+  // Fetch interval order counts for tooltip display
+  let intervalStats: Map<number, { ordersIn6m: number; ordersIn6to12m: number }> = new Map();
+  if (items.length > 0) {
+    const now = new Date();
+    const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+    const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const fmt = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
+    const customerIds = items.map(c => c.id);
+    try {
+      const statsRows: any[] = await db.execute(sql`
+        SELECT customerId,
+          SUM(CASE WHEN shippedAt >= ${fmt(sixMonthsAgo)} AND shippedAt <= ${fmt(now)} THEN 1 ELSE 0 END) AS ordersIn6m,
+          SUM(CASE WHEN shippedAt >= ${fmt(oneYearAgo)} AND shippedAt < ${fmt(sixMonthsAgo)} THEN 1 ELSE 0 END) AS ordersIn6to12m
+        FROM orders
+        WHERE customerId IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})
+          AND orderStatus != -1 AND isShipped = 1 AND shippedAt IS NOT NULL
+        GROUP BY customerId
+      `);
+      for (const row of statsRows) {
+        intervalStats.set(Number(row.customerId), {
+          ordersIn6m: Number(row.ordersIn6m || 0),
+          ordersIn6to12m: Number(row.ordersIn6to12m || 0),
+        });
+      }
+    } catch (e) {
+      // Silently fail - tooltip data is non-critical
+    }
+  }
+
+  const enrichedItems = items.map(c => ({
+    ...c,
+    ordersIn6m: intervalStats.get(c.id)?.ordersIn6m ?? 0,
+    ordersIn6to12m: intervalStats.get(c.id)?.ordersIn6to12m ?? 0,
+  }));
+
+  // Aggregate stats for filtered results (only when filters are active)
+  let aggregateStats = null;
+  const hasActiveFilters = !!(filters.registeredFrom || filters.registeredTo || filters.birthdayMonth || filters.tags || filters.memberLevel || (filters.creditsOp && filters.creditsValue !== undefined) || (filters.totalSpentOp && filters.totalSpentValue !== undefined) || (filters.totalOrdersOp && filters.totalOrdersValue !== undefined) || filters.lastPurchaseFrom || filters.lastPurchaseTo || (filters.lastPurchaseAmountOp && filters.lastPurchaseAmountValue !== undefined) || filters.lastShipmentFrom || filters.lastShipmentTo || (filters.lifecycles && filters.lifecycles.length > 0) || filters.blacklisted || filters.lineUid || (filters.searchValue && filters.searchField));
+  if (hasActiveFilters) {
+    try {
+      const [statsResult] = await db
+        .select({
+          totalCount: sql<number>`COUNT(*)`,
+          blacklistCount: sql<number>`SUM(CASE WHEN ${customers.blacklisted} = '是' THEN 1 ELSE 0 END)`,
+          orders0: sql<number>`SUM(CASE WHEN COALESCE(${customers.totalOrders}, 0) = 0 THEN 1 ELSE 0 END)`,
+          orders1: sql<number>`SUM(CASE WHEN ${customers.totalOrders} = 1 THEN 1 ELSE 0 END)`,
+          orders2: sql<number>`SUM(CASE WHEN ${customers.totalOrders} = 2 THEN 1 ELSE 0 END)`,
+          orders3plus: sql<number>`SUM(CASE WHEN ${customers.totalOrders} >= 3 THEN 1 ELSE 0 END)`,
+          totalSpentSum: sql<string>`COALESCE(SUM(CAST(${customers.totalSpent} AS DECIMAL(14,2))), 0)`,
+        })
+        .from(customers)
+        .where(where);
+
+      aggregateStats = {
+        totalCount: Number(statsResult?.totalCount || 0),
+        blacklistCount: Number(statsResult?.blacklistCount || 0),
+        orders0: Number(statsResult?.orders0 || 0),
+        orders1: Number(statsResult?.orders1 || 0),
+        orders2: Number(statsResult?.orders2 || 0),
+        orders3plus: Number(statsResult?.orders3plus || 0),
+        totalSpentSum: parseFloat(String(statsResult?.totalSpentSum || "0")),
+      };
+    } catch (e) {
+      // Non-critical, continue without stats
+    }
+  }
+
   return {
-    items,
+    items: enrichedItems,
     total: Number(countResult?.count || 0),
+    aggregateStats,
   };
 }
 
@@ -1085,9 +1153,67 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
     .limit(limit)
     .offset(page * limit);
 
+  // Aggregate stats for filtered results (only when filters are active)
+  let aggregateStats = null;
+  const hasActiveFilters = !!(filters.orderSource || filters.paymentMethod || filters.shippingMethod || filters.shippingAddress || filters.shippedFrom || filters.shippedTo || filters.logisticsStatus || (filters.searchValue && filters.searchField));
+  if (hasActiveFilters) {
+    try {
+      // Combined: total amount + count in single query
+      const [amountResult] = await db
+        .select({
+          totalAmount: sql<string>`COALESCE(SUM(CAST(${orders.total} AS DECIMAL(14,2))), 0)`,
+        })
+        .from(orders)
+        .where(where);
+
+      // Blacklist count: use raw SQL subquery to avoid Drizzle subquery JOIN issues
+      const [blacklistResult] = await db
+        .select({
+          blacklistCount: sql<number>`COUNT(*)`,
+        })
+        .from(customers)
+        .where(and(
+          eq(customers.blacklisted, '是'),
+          sql`${customers.id} IN (SELECT DISTINCT ${orders.customerId} FROM ${orders} WHERE ${where} AND ${orders.customerId} IS NOT NULL)`
+        ));
+
+      // Shipping method distribution
+      const shippingDist = await db
+        .select({
+          method: orders.shippingMethod,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(orders)
+        .where(where)
+        .groupBy(orders.shippingMethod);
+
+      // Payment method amount distribution
+      const paymentDist = await db
+        .select({
+          method: orders.paymentMethod,
+          totalAmount: sql<string>`COALESCE(SUM(CAST(${orders.total} AS DECIMAL(14,2))), 0)`,
+        })
+        .from(orders)
+        .where(where)
+        .groupBy(orders.paymentMethod);
+
+      aggregateStats = {
+        totalCount: Number(countResult?.count || 0),
+        blacklistCount: Number(blacklistResult?.blacklistCount || 0),
+        totalAmount: parseFloat(String(amountResult?.totalAmount || "0")),
+        shippingDistribution: shippingDist.map(s => ({ method: s.method || "未指定", count: Number(s.count) })),
+        paymentDistribution: paymentDist.map(p => ({ method: p.method || "未指定", totalAmount: parseFloat(String(p.totalAmount || "0")) })),
+      };
+    } catch (e) {
+      console.error('[OrderMgmt] aggregateStats error:', e);
+      // Non-critical, continue without stats
+    }
+  }
+
   return {
     items,
     total: Number(countResult?.count || 0),
+    aggregateStats,
   };
 }
 
@@ -1362,6 +1488,7 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
   total: number;
   updated: number;
   distribution: Record<string, number>;
+  transitions: Record<string, number>;
 }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1378,13 +1505,14 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
   const sixMonthsAgoStr = fmt(sixMonthsAgo);
   const oneYearAgoStr = fmt(oneYearAgo);
 
-  // Step 1: Get all customers with their lastShipmentAt and registeredAt
+  // Step 1: Get all customers with their lastShipmentAt, registeredAt, and current lifecycle
   const allCustomers = await db
     .select({
       id: customers.id,
       externalId: customers.externalId,
       lastShipmentAt: customers.lastShipmentAt,
       registeredAt: customers.registeredAt,
+      lifecycle: customers.lifecycle,
     })
     .from(customers);
 
@@ -1424,17 +1552,27 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
   // Group updates by lifecycle to minimize SQL calls
   const lifecycleUpdates: Record<string, number[]> = { N: [], A: [], S: [], L: [], D: [], O: [] };
 
+  // Track transitions: "N→A": count
+  const transitions: Record<string, number> = {};
+
   for (const cust of allCustomers) {
     const stats = statsMap.get(cust.id) || { ordersIn6m: 0, ordersIn6to12m: 0 };
-    const lifecycle = classifyCustomer(
+    const newLifecycle = classifyCustomer(
       cust.lastShipmentAt,
       cust.registeredAt,
       stats.ordersIn6m,
       stats.ordersIn6to12m,
       referenceDate
     );
-    distribution[lifecycle] = (distribution[lifecycle] || 0) + 1;
-    lifecycleUpdates[lifecycle].push(cust.id);
+    distribution[newLifecycle] = (distribution[newLifecycle] || 0) + 1;
+    lifecycleUpdates[newLifecycle].push(cust.id);
+
+    // Record transition if lifecycle changed
+    const oldLifecycle = cust.lifecycle || "O";
+    if (oldLifecycle !== newLifecycle) {
+      const key = `${oldLifecycle}→${newLifecycle}`;
+      transitions[key] = (transitions[key] || 0) + 1;
+    }
   }
 
   // Batch update by lifecycle category
@@ -1456,5 +1594,6 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
     total: allCustomers.length,
     updated,
     distribution,
+    transitions,
   };
 }
