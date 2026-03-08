@@ -193,66 +193,82 @@ export default function Sync() {
     return map[fileType];
   }, []);
 
-  // Poll background job status
-  const startPolling = useCallback((fileType: ExcelFileType, jobId: number) => {
+  // Trigger server-side processing in chunks and update progress
+  const startProcessing = useCallback((fileType: ExcelFileType, jobId: number) => {
     // Clear existing polling for this type
     if (pollingRefs.current[fileType]) {
       clearInterval(pollingRefs.current[fileType]!);
+      pollingRefs.current[fileType] = null;
     }
 
     const setter = getStateSetter(fileType);
     const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
+    let stopped = false;
 
-    const poll = async () => {
+    // Repeatedly call /api/import/process until done
+    const processNextChunk = async () => {
+      if (stopped) return;
       try {
-        const response = await fetch(`/api/trpc/importJob.status?input=${encodeURIComponent(JSON.stringify({ json: { jobId } }))}`);
-        const data = await response.json();
-        const job = data?.result?.data?.json;
+        const resp = await fetch("/api/import/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId }),
+        });
 
-        if (!job) return;
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({ error: "處理請求失敗" }));
+          throw new Error(errData.error || "處理請求失敗");
+        }
 
-        const totalRows = job.totalRows || 1;
-        const processedRows = job.processedRows || 0;
+        const data = await resp.json();
+        console.log("[Import Chunk]", data);
+
+        const totalRows = data.totalRows || 1;
+        const processedRows = data.processedRows || 0;
         const progress = Math.min(Math.round((processedRows / totalRows) * 100), 100);
 
         setter(prev => ({
           ...prev,
-          jobStatus: job.status,
+          jobStatus: data.done ? (data.status === "failed" ? "failed" : "completed") : "processing",
           jobProgress: progress,
-          jobDetail: `已處理 ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} 筆（成功 ${(job.successRows || 0).toLocaleString()}，錯誤 ${(job.errorRows || 0).toLocaleString()}）`,
+          jobDetail: `已處理 ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} 筆（成功 ${(data.successRows || 0).toLocaleString()}，錯誤 ${(data.errorRows || 0).toLocaleString()}）`,
         }));
 
-        if (job.status === "completed" || job.status === "failed") {
-          // Stop polling
-          if (pollingRefs.current[fileType]) {
-            clearInterval(pollingRefs.current[fileType]!);
-            pollingRefs.current[fileType] = null;
-          }
-
+        if (data.done || data.status === "completed" || data.status === "failed") {
+          stopped = true;
           setter(prev => ({
             ...prev,
             uploading: false,
-            jobProgress: job.status === "completed" ? 100 : prev.jobProgress,
-            result: job.status === "completed"
-              ? { success: true, ...((job.result as Record<string, unknown>) || {}), backgroundJob: true }
-              : { success: false, error: job.errorMessage || "匯入失敗" },
+            jobProgress: data.status === "completed" ? 100 : prev.jobProgress,
+            result: data.status === "completed"
+              ? { success: true, processed: data.successRows, backgroundJob: true }
+              : { success: false, error: data.message || "匯入失敗" },
           }));
 
-          if (job.status === "completed") {
-            toast.success(`${typeLabel}資料背景匯入完成！成功 ${(job.successRows || 0).toLocaleString()} 筆`);
+          if (data.status === "completed") {
+            toast.success(`${typeLabel}資料匯入完成！成功 ${(data.successRows || 0).toLocaleString()} 筆`);
             refetchStatus();
-          } else {
-            toast.error(`${typeLabel}資料匯入失敗: ${job.errorMessage || "未知錯誤"}`);
+          } else if (data.status === "failed") {
+            toast.error(`${typeLabel}資料匯入失敗: ${data.message || "未知錯誤"}`);
           }
+          return;
         }
-      } catch (err) {
-        console.error("[Polling] Error:", err);
+
+        // Continue with next chunk after a short delay
+        setTimeout(processNextChunk, 500);
+      } catch (err: any) {
+        console.error("[Import Chunk] Error:", err);
+        // Retry after a delay (network error, temporary failure)
+        setter(prev => ({
+          ...prev,
+          jobDetail: prev.jobDetail + " (重試中...)",
+        }));
+        setTimeout(processNextChunk, 3000);
       }
     };
 
-    // Poll immediately, then every 2 seconds
-    poll();
-    pollingRefs.current[fileType] = setInterval(poll, 2000);
+    // Start processing after a short delay
+    setTimeout(processNextChunk, 1000);
   }, [getStateSetter, refetchStatus]);
 
   // Cleanup polling on unmount
@@ -315,8 +331,8 @@ export default function Sync() {
           jobDetail: `匯入任務已建立，共 ${(result.totalRows || 0).toLocaleString()} 筆資料`,
         }));
         toast.info(`檔案已上傳，${(result.totalRows || 0).toLocaleString()} 筆資料將在背景處理中...`);
-        // Start polling for progress
-        startPolling(fileType, result.jobId);
+        // Trigger processing and start polling for progress
+        startProcessing(fileType, result.jobId);
       } else {
         // Synchronous mode (small files)
         setState({ ...state, uploading: false, result, jobId: null, jobStatus: null, jobProgress: 0, jobDetail: null });
@@ -579,7 +595,7 @@ export default function Sync() {
             <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-300">
               <FileSpreadsheet className="h-4 w-4 shrink-0" />
               <span>
-                支援大量資料匯入（數萬筆）。超過 500 筆的檔案將自動切換為背景處理模式，您可以即時查看匯入進度。
+                支援大量資料匯入（數萬筆）。檔案會先上傳到雲端儲存，再由伺服器分批處理，您可以即時查看匯入進度。
               </span>
             </div>
           </div>
@@ -945,7 +961,7 @@ export default function Sync() {
               <li>僅<strong className="text-foreground">管理員</strong>可以查看（遮罩顯示）、修改憑證、執行同步和匯入 Excel</li>
               <li>加密金鑰衍生自伺服器端環境變數，不會暴露在前端</li>
               <li>所有流量經由 <strong className="text-foreground">Cloudflare WAF</strong> 防護</li>
-              <li>Excel 匯入的檔案僅在記憶體中處理，不會存留在伺服器上</li>
+              <li>Excel 匯入的檔案會暫存於加密雲端儲存空間，處理完成後可安全存取</li>
             </ul>
           </div>
         </CardContent>

@@ -236,6 +236,8 @@ export const importJobs = mysqlTable("importJobs", {
   userName: varchar("userName", { length: 255 }),
   fileType: varchar("fileType", { length: 32 }).notNull(), // customers, orders, products, logistics
   fileName: varchar("fileName", { length: 512 }),
+  fileUrl: text("fileUrl"), // S3 URL for the uploaded Excel file
+  fileKey: varchar("fileKey", { length: 512 }), // S3 key for the uploaded Excel file
   status: mysqlEnum("status", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
   totalRows: int("totalRows").default(0),
   processedRows: int("processedRows").default(0),

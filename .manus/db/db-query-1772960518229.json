@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE importJobs SET status = 'failed', errorMessage = '背景任務架構已更新，請重新上傳', completedAt = NOW() WHERE id = 4 AND status IN ('pending', 'processing')",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE importJobs SET status = 'failed', errorMessage = '背景任務架構已更新，請重新上傳', completedAt = NOW() WHERE id = 4 AND status IN ('pending', 'processing')",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1603
+}

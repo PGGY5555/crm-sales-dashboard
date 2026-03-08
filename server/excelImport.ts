@@ -243,6 +243,8 @@ export async function createImportJob(
   fileType: string,
   fileName: string | null,
   totalRows: number,
+  fileUrl?: string | null,
+  fileKey?: string | null,
 ): Promise<number | null> {
   const db = await getDb();
   if (!db) return null;
@@ -252,6 +254,8 @@ export async function createImportJob(
     userName,
     fileType,
     fileName,
+    fileUrl: fileUrl || null,
+    fileKey: fileKey || null,
     totalRows,
     status: "pending",
     processedRows: 0,
