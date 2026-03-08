@@ -41,7 +41,7 @@ import { PERMISSION_KEYS, type PermissionKey } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
 import { invokeLLM } from "./_core/llm";
-import { getImportJobStatus, getActiveImportJobs } from "./excelImport";
+import { getImportJobStatus, getActiveImportJobs, retryImportJob } from "./excelImport";
 
 const dateRangeSchema = z.object({
   from: z.date().optional(),
@@ -602,6 +602,13 @@ ${contextData.topSalesReps?.map((r, i) => `${i + 1}. ${r.salesRep}: 營收 ${r.r
       .query(async () => {
         const jobs = await getActiveImportJobs();
         return jobs;
+      }),
+
+    /** Retry a stuck/failed import job */
+    retry: protectedProcedure
+      .input(z.object({ jobId: z.number() }))
+      .mutation(async ({ input }) => {
+        return await retryImportJob(input.jobId);
       }),
   }),
 });

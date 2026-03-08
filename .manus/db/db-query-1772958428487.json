@@ -1,0 +1,52 @@
+{
+  "query": "SELECT id, userName, fileType, fileName, status, totalRows, processedRows, successRows, errorRows, errorMessage, createdAt, completedAt FROM importJobs ORDER BY id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT id, userName, fileType, fileName, status, totalRows, processedRows, successRows, errorRows, errorMessage, createdAt, completedAt FROM importJobs ORDER BY id DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "3",
+      "userName": "統宣T.S.",
+      "fileType": "customers",
+      "fileName": "2021_20260308.xlsx",
+      "status": "pending",
+      "totalRows": "61813",
+      "processedRows": "0",
+      "successRows": "0",
+      "errorRows": "0",
+      "errorMessage": "NULL",
+      "createdAt": "2026-03-08 08:03:12",
+      "completedAt": "NULL"
+    },
+    {
+      "id": "2",
+      "userName": "統宣T.S.",
+      "fileType": "customers",
+      "fileName": "2018-2020.xlsx",
+      "status": "completed",
+      "totalRows": "37573",
+      "processedRows": "37573",
+      "successRows": "37573",
+      "errorRows": "0",
+      "errorMessage": "NULL",
+      "createdAt": "2026-03-08 06:35:17",
+      "completedAt": "2026-03-08 07:47:57"
+    },
+    {
+      "id": "1",
+      "userName": "統宣T.S.",
+      "fileType": "customers",
+      "fileName": "2018-2020.xlsx",
+      "status": "processing",
+      "totalRows": "37573",
+      "processedRows": "200",
+      "successRows": "200",
+      "errorRows": "0",
+      "errorMessage": "NULL",
+      "createdAt": "2026-03-08 06:23:30",
+      "completedAt": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tuserName\tfileType\tfileName\tstatus\ttotalRows\tprocessedRows\tsuccessRows\terrorRows\terrorMessage\tcreatedAt\tcompletedAt\n3\t統宣T.S.\tcustomers\t2021_20260308.xlsx\tpending\t61813\t0\t0\t0\tNULL\t2026-03-08 08:03:12\tNULL\n2\t統宣T.S.\tcustomers\t2018-2020.xlsx\tcompleted\t37573\t37573\t37573\t0\tNULL\t2026-03-08 06:35:17\t2026-03-08 07:47:57\n1\t統宣T.S.\tcustomers\t2018-2020.xlsx\tprocessing\t37573\t200\t200\t0\tNULL\t2026-03-08 06:23:30\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 1583
+}

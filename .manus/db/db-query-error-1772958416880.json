@@ -1,0 +1,8 @@
+{
+  "query": "SELECT id, user_name, file_type, file_name, status, total_rows, processed_rows, success_rows, error_rows, error_message, created_at, completed_at FROM import_jobs ORDER BY id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT id, user_name, file_type, file_name, status, total_rows, processed_rows, success_rows, error_rows, error_message, created_at, completed_at FROM import_jobs ORDER BY id DESC LIMIT 10;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'dn8ihetpknpmgxaqbwyu7x.import_jobs' doesn't exist"
+  ]
+}

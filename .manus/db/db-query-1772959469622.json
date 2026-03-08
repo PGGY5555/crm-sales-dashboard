@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE importJobs SET status = 'failed', errorMessage = '手動取消：任務卡住無進度', completedAt = NOW() WHERE id = 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE importJobs SET status = 'failed', errorMessage = '手動取消：任務卡住無進度', completedAt = NOW() WHERE id = 3;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1633
+}
