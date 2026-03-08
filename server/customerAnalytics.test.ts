@@ -84,3 +84,79 @@ describe("Customer Management Sorting", () => {
     expect(typeof db.getCustomerList).toBe("function");
   });
 });
+
+describe("Shipment Date KPI", () => {
+  it("should define getShipmentDateKPI function", async () => {
+    const db = await import("./db");
+    expect(typeof db.getShipmentDateKPI).toBe("function");
+  });
+
+  it("getShipmentDateKPI should accept from and to date parameters", async () => {
+    const db = await import("./db");
+    // Function accepts { from?: Date, to?: Date }
+    expect(db.getShipmentDateKPI.length).toBeLessThanOrEqual(1);
+  });
+
+  it("getShipmentDateKPI should return correct shape when called", async () => {
+    const db = await import("./db");
+    // Test with empty date range (should query all customers with lastShipmentAt)
+    const result = await db.getShipmentDateKPI({});
+    if (result !== null) {
+      expect(result).toHaveProperty("customerCount");
+      expect(result).toHaveProperty("totalRevenue");
+      expect(result).toHaveProperty("avgSpent");
+      expect(result).toHaveProperty("avgRepurchaseDays");
+      expect(result).toHaveProperty("repurchaseRate");
+      expect(result).toHaveProperty("avgOrderValue");
+      expect(typeof result.customerCount).toBe("number");
+      expect(typeof result.totalRevenue).toBe("number");
+      expect(typeof result.avgSpent).toBe("number");
+      expect(typeof result.avgRepurchaseDays).toBe("number");
+      expect(typeof result.repurchaseRate).toBe("number");
+      expect(typeof result.avgOrderValue).toBe("number");
+    }
+  });
+
+  it("getShipmentDateKPI should accept from date only", async () => {
+    const db = await import("./db");
+    const result = await db.getShipmentDateKPI({ from: new Date("2025-01-01") });
+    if (result !== null) {
+      expect(result.customerCount).toBeGreaterThanOrEqual(0);
+      expect(result.repurchaseRate).toBeGreaterThanOrEqual(0);
+      expect(result.repurchaseRate).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("getShipmentDateKPI should accept to date only", async () => {
+    const db = await import("./db");
+    const result = await db.getShipmentDateKPI({ to: new Date("2026-12-31") });
+    if (result !== null) {
+      expect(result.customerCount).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("getShipmentDateKPI should accept both from and to dates", async () => {
+    const db = await import("./db");
+    const result = await db.getShipmentDateKPI({
+      from: new Date("2025-01-01"),
+      to: new Date("2026-12-31"),
+    });
+    if (result !== null) {
+      expect(result.customerCount).toBeGreaterThanOrEqual(0);
+      expect(result.totalRevenue).toBeGreaterThanOrEqual(0);
+      expect(result.avgOrderValue).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("getShipmentDateKPI with narrow date range should return fewer customers", async () => {
+    const db = await import("./db");
+    const wide = await db.getShipmentDateKPI({});
+    const narrow = await db.getShipmentDateKPI({
+      from: new Date("2026-02-01"),
+      to: new Date("2026-02-28"),
+    });
+    if (wide !== null && narrow !== null) {
+      expect(narrow.customerCount).toBeLessThanOrEqual(wide.customerCount);
+    }
+  });
+});

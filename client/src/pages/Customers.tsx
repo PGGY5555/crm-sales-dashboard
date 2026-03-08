@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Search,
@@ -61,6 +61,11 @@ export default function Customers() {
     total: number;
   } | null>(null);
   const [showTransitionDialog, setShowTransitionDialog] = useState(false);
+  const [shipmentFrom, setShipmentFrom] = useState<Date | undefined>(undefined);
+  const [shipmentTo, setShipmentTo] = useState<Date | undefined>(undefined);
+  const [shipmentFromOpen, setShipmentFromOpen] = useState(false);
+  const [shipmentToOpen, setShipmentToOpen] = useState(false);
+  const [shipmentFilterActive, setShipmentFilterActive] = useState(false);
 
   const queryInput = useMemo(() => ({
     page,
@@ -72,6 +77,11 @@ export default function Customers() {
   const lifecycleFilter = useMemo(() => ({
     lifecycles: selectedLifecycles.length > 0 ? selectedLifecycles : undefined,
   }), [selectedLifecycles]);
+
+  const shipmentKpiInput = useMemo(() => ({
+    from: shipmentFilterActive && shipmentFrom ? shipmentFrom : undefined,
+    to: shipmentFilterActive && shipmentTo ? shipmentTo : undefined,
+  }), [shipmentFilterActive, shipmentFrom, shipmentTo]);
 
   const utils = trpc.useUtils();
 
@@ -86,6 +96,11 @@ export default function Customers() {
 
   const { data: registrationTrend, isLoading: trendLoading } =
     trpc.dashboard.customerRegistrationTrend.useQuery(lifecycleFilter);
+
+  const { data: shipmentKpi, isLoading: shipmentKpiLoading } =
+    trpc.dashboard.shipmentDateKPI.useQuery(shipmentKpiInput, {
+      enabled: shipmentFilterActive,
+    });
 
   const LIFECYCLE_LABELS: Record<string, string> = {
     N: "N 新鮮客", A: "A 活躍客", S: "S 沉睡客", L: "L 流失客", D: "D 封存客", O: "O 機會客",
@@ -203,6 +218,157 @@ export default function Customers() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Shipment Date Range Filter */}
+      <Card className="border-dashed border-indigo-200 dark:border-indigo-800/40">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-indigo-500" />
+              <span className="text-sm font-semibold">最後出貨日區間</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Popover open={shipmentFromOpen} onOpenChange={setShipmentFromOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-2 text-sm font-normal min-w-[120px]">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    {shipmentFrom ? formatDate(shipmentFrom) : "起始日期"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={shipmentFrom}
+                    onSelect={(date) => {
+                      setShipmentFrom(date || undefined);
+                      setShipmentFromOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              <span className="text-muted-foreground text-sm">~</span>
+              <Popover open={shipmentToOpen} onOpenChange={setShipmentToOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-2 text-sm font-normal min-w-[120px]">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    {shipmentTo ? formatDate(shipmentTo) : "結束日期"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={shipmentTo}
+                    onSelect={(date) => {
+                      setShipmentTo(date || undefined);
+                      setShipmentToOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button
+                size="sm"
+                className="h-8 gap-2"
+                onClick={() => {
+                  if (!shipmentFrom && !shipmentTo) {
+                    toast.error("請至少選擇一個日期");
+                    return;
+                  }
+                  setShipmentFilterActive(true);
+                }}
+                disabled={!shipmentFrom && !shipmentTo}
+              >
+                <Search className="h-3.5 w-3.5" />
+                查詢
+              </Button>
+              {shipmentFilterActive && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-muted-foreground"
+                  onClick={() => {
+                    setShipmentFrom(undefined);
+                    setShipmentTo(undefined);
+                    setShipmentFilterActive(false);
+                  }}
+                >
+                  清除
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            篩選最後出貨日在指定區間內的客戶，查看該客群的 KPI 摘要
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Shipment Date KPI Cards */}
+      {shipmentFilterActive && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {shipmentKpiLoading ? (
+            [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24" />)
+          ) : shipmentKpi ? (
+            <>
+              <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100/50 dark:from-indigo-950/30 dark:to-indigo-900/20 border-indigo-200/50 dark:border-indigo-800/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 mb-1">
+                    <Users className="h-4 w-4" />
+                    <span className="text-xs font-medium">客戶數</span>
+                  </div>
+                  <p className="text-xl font-bold">{shipmentKpi.customerCount.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20 border-emerald-200/50 dark:border-emerald-800/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 mb-1">
+                    <DollarSign className="h-4 w-4" />
+                    <span className="text-xs font-medium">總營收</span>
+                  </div>
+                  <p className="text-xl font-bold">{formatCurrency(shipmentKpi.totalRevenue)}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-violet-50 to-violet-100/50 dark:from-violet-950/30 dark:to-violet-900/20 border-violet-200/50 dark:border-violet-800/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400 mb-1">
+                    <ShoppingCart className="h-4 w-4" />
+                    <span className="text-xs font-medium">平均消費</span>
+                  </div>
+                  <p className="text-xl font-bold">{formatCurrency(shipmentKpi.avgSpent)}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/30 dark:to-amber-900/20 border-amber-200/50 dark:border-amber-800/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 mb-1">
+                    <CalendarClock className="h-4 w-4" />
+                    <span className="text-xs font-medium">平均回購天數</span>
+                  </div>
+                  <p className="text-xl font-bold">
+                    {shipmentKpi.avgRepurchaseDays > 0 ? `${shipmentKpi.avgRepurchaseDays} 天` : "—"}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-950/30 dark:to-pink-900/20 border-pink-200/50 dark:border-pink-800/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-pink-600 dark:text-pink-400 mb-1">
+                    <Repeat className="h-4 w-4" />
+                    <span className="text-xs font-medium">回購率</span>
+                  </div>
+                  <p className="text-xl font-bold">{shipmentKpi.repurchaseRate.toFixed(1)}%</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100/50 dark:from-cyan-950/30 dark:to-cyan-900/20 border-cyan-200/50 dark:border-cyan-800/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-cyan-600 dark:text-cyan-400 mb-1">
+                    <TrendingUp className="h-4 w-4" />
+                    <span className="text-xs font-medium">客單價</span>
+                  </div>
+                  <p className="text-xl font-bold">{formatCurrency(shipmentKpi.avgOrderValue)}</p>
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

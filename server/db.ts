@@ -697,6 +697,55 @@ export async function getCustomerRegistrationTrend(filters: DashboardFilters = {
   }));
 }
 
+/** Get KPI stats filtered by last shipment date range */
+export async function getShipmentDateKPI(input: { from?: Date; to?: Date }) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const conditions: any[] = [];
+  // Must have lastShipmentAt
+  conditions.push(isNotNull(customers.lastShipmentAt));
+  if (input.from) {
+    conditions.push(sql`${customers.lastShipmentAt} >= ${input.from}`);
+  }
+  if (input.to) {
+    conditions.push(sql`${customers.lastShipmentAt} <= ${input.to}`);
+  }
+  const where = and(...conditions);
+
+  const [stats] = await db
+    .select({
+      customerCount: sql<number>`COUNT(*)`,
+      totalRevenue: sql<string>`COALESCE(SUM(${customers.totalSpent}), 0)`,
+      avgSpent: sql<string>`COALESCE(AVG(CASE WHEN ${customers.totalSpent} > 0 THEN ${customers.totalSpent} END), 0)`,
+      avgRepurchaseDays: sql<string>`COALESCE(AVG(CASE WHEN ${customers.avgRepurchaseDays} > 0 THEN ${customers.avgRepurchaseDays} END), 0)`,
+      repurchaseCustomers: sql<number>`SUM(CASE WHEN ${customers.totalOrders} > 1 THEN 1 ELSE 0 END)`,
+      activeCustomers: sql<number>`SUM(CASE WHEN ${customers.totalOrders} > 0 THEN 1 ELSE 0 END)`,
+      totalOrders: sql<number>`COALESCE(SUM(${customers.totalOrders}), 0)`,
+    })
+    .from(customers)
+    .where(where);
+
+  const customerCount = Number(stats?.customerCount || 0);
+  const totalRevenue = parseFloat(String(stats?.totalRevenue || '0'));
+  const activeCustomers = Number(stats?.activeCustomers || 0);
+  const repurchaseCustomers = Number(stats?.repurchaseCustomers || 0);
+  const totalOrders = Number(stats?.totalOrders || 0);
+
+  return {
+    customerCount,
+    totalRevenue,
+    avgSpent: parseFloat(String(stats?.avgSpent || '0')),
+    avgRepurchaseDays: Math.round(parseFloat(String(stats?.avgRepurchaseDays || '0'))),
+    repurchaseRate: activeCustomers > 0
+      ? (repurchaseCustomers / activeCustomers) * 100
+      : 0,
+    avgOrderValue: totalOrders > 0
+      ? totalRevenue / totalOrders
+      : 0,
+  };
+}
+
 /** Get last sync log */
 export async function getLastSyncLog() {
   const db = await getDb();

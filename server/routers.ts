@@ -39,6 +39,7 @@ import {
   getCustomerAnalyticsStats,
   getCustomerRegistrationTrend,
   recalculateAllLifecycles,
+  getShipmentDateKPI,
 } from "./db";
 import { PERMISSION_KEYS, type PermissionKey } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
@@ -111,6 +112,16 @@ export const appRouter = router({
       .input(filtersSchema.optional())
       .query(async ({ input }) => {
         return getCustomerAnalyticsStats(input ?? {});
+      }),
+
+    /** Shipment date range KPI */
+    shipmentDateKPI: protectedProcedure
+      .input(z.object({
+        from: z.date().optional(),
+        to: z.date().optional(),
+      }))
+      .query(async ({ input }) => {
+        return getShipmentDateKPI(input);
       }),
 
     /** Customer registration trend */
