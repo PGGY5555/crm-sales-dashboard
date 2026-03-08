@@ -1,0 +1,30 @@
+{
+  "query": "SELECT DATE_FORMAT(registeredAt, '%Y-%m') as m, COUNT(*) as c FROM customers WHERE registeredAt IS NOT NULL GROUP BY m ORDER BY m LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT DATE_FORMAT(registeredAt, '%Y-%m') as m, COUNT(*) as c FROM customers WHERE registeredAt IS NOT NULL GROUP BY m ORDER BY m LIMIT 5;",
+  "rows": [
+    {
+      "m": "2018-01",
+      "c": "1524"
+    },
+    {
+      "m": "2018-02",
+      "c": "651"
+    },
+    {
+      "m": "2018-03",
+      "c": "932"
+    },
+    {
+      "m": "2018-04",
+      "c": "993"
+    },
+    {
+      "m": "2018-05",
+      "c": "843"
+    }
+  ],
+  "messages": [],
+  "stdout": "m\tc\n2018-01\t1524\n2018-02\t651\n2018-03\t932\n2018-04\t993\n2018-05\t843\n",
+  "stderr": "",
+  "execution_time_ms": 1613
+}

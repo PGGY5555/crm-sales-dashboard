@@ -1,0 +1,17 @@
+{
+  "query": "SELECT \n  COUNT(*) as total,\n  COUNT(avgRepurchaseDays) as has_value,\n  AVG(avgRepurchaseDays) as avg_val,\n  MIN(avgRepurchaseDays) as min_val,\n  MAX(avgRepurchaseDays) as max_val\nFROM customers WHERE totalOrders > 1",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT \n  COUNT(*) as total,\n  COUNT(avgRepurchaseDays) as has_value,\n  AVG(avgRepurchaseDays) as avg_val,\n  MIN(avgRepurchaseDays) as min_val,\n  MAX(avgRepurchaseDays) as max_val\nFROM customers WHERE totalOrders > 1",
+  "rows": [
+    {
+      "total": "1079",
+      "has_value": "0",
+      "avg_val": "NULL",
+      "min_val": "NULL",
+      "max_val": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\thas_value\tavg_val\tmin_val\tmax_val\n1079\t0\tNULL\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 1721
+}

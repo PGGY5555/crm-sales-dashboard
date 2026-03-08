@@ -538,18 +538,19 @@ export default function CustomerManagement() {
                       />
                     </TableHead>
                   )}
+                  <TableHead className="min-w-[100px]">註冊日期</TableHead>
                   <TableHead className="min-w-[100px]">顧客姓名</TableHead>
                   <TableHead className="min-w-[120px]">電子信箱</TableHead>
                   <TableHead className="min-w-[100px]">手機</TableHead>
                   <TableHead className="min-w-[80px]">會員等級</TableHead>
                   <TableHead className="min-w-[60px]">生命週期</TableHead>
-                  <TableHead className="min-w-[80px] text-right">購物金</TableHead>
+                  <TableHead className="min-w-[60px]">黑名單</TableHead>
+                  <TableHead className="min-w-[80px]">標籤</TableHead>
+                  <TableHead className="min-w-[100px]">最後出貨</TableHead>
                   <TableHead className="min-w-[100px] text-right">累積消費</TableHead>
                   <TableHead className="min-w-[60px] text-right">消費次數</TableHead>
                   <TableHead className="min-w-[100px]">最後購買</TableHead>
-                  <TableHead className="min-w-[100px]">最後出貨</TableHead>
-                  <TableHead className="min-w-[80px]">標籤</TableHead>
-                  <TableHead className="min-w-[60px]">黑名單</TableHead>
+                  <TableHead className="min-w-[80px] text-right">購物金</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -573,6 +574,7 @@ export default function CustomerManagement() {
                           />
                         </TableCell>
                       )}
+                      <TableCell className="text-sm">{c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
                       <TableCell className="font-medium">
                         <Link href={`/customer/${c.id}`} className="text-primary hover:underline inline-flex items-center gap-1">
                           {c.name || "-"}
@@ -587,17 +589,17 @@ export default function CustomerManagement() {
                           {c.lifecycle || "O"}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right text-sm">{parseFloat(String(c.credits || "0")).toLocaleString()}</TableCell>
-                      <TableCell className="text-right text-sm font-medium">${parseFloat(String(c.totalSpent || "0")).toLocaleString()}</TableCell>
-                      <TableCell className="text-right text-sm">{c.totalOrders}</TableCell>
-                      <TableCell className="text-sm">{c.lastPurchaseDate ? new Date(c.lastPurchaseDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
-                      <TableCell className="text-sm">{c.lastShipmentAt ? new Date(c.lastShipmentAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
-                      <TableCell className="text-sm max-w-[120px] truncate" title={c.tags || ""}>{c.tags || "-"}</TableCell>
                       <TableCell className="text-sm">
                         <span className={c.blacklisted === "是" ? "text-red-600 font-medium" : ""}>
                           {c.blacklisted || "否"}
                         </span>
                       </TableCell>
+                      <TableCell className="text-sm max-w-[120px] truncate" title={c.tags || ""}>{c.tags || "-"}</TableCell>
+                      <TableCell className="text-sm">{c.lastShipmentAt ? new Date(c.lastShipmentAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
+                      <TableCell className="text-right text-sm font-medium">${parseFloat(String(c.totalSpent || "0")).toLocaleString()}</TableCell>
+                      <TableCell className="text-right text-sm">{c.totalOrders}</TableCell>
+                      <TableCell className="text-sm">{c.lastPurchaseDate ? new Date(c.lastPurchaseDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
+                      <TableCell className="text-right text-sm">{parseFloat(String(c.credits || "0")).toLocaleString()}</TableCell>
                     </TableRow>
                   ))
                 )}

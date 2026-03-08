@@ -507,7 +507,27 @@ async function startServer() {
               WHERE totalOrders > 0
             `));
 
-            console.log('[Complete Job] Customer stats and lifecycle updated successfully');
+            // Update avgRepurchaseDays
+            await db.execute(sql.raw(`
+              UPDATE customers c
+              JOIN (
+                SELECT 
+                  customerId,
+                  ROUND(AVG(day_diff)) as avg_days
+                FROM (
+                  SELECT 
+                    customerId,
+                    DATEDIFF(orderDate, LAG(orderDate) OVER (PARTITION BY customerId ORDER BY orderDate)) as day_diff
+                  FROM orders
+                  WHERE customerId IS NOT NULL AND orderStatus != -1
+                ) diffs
+                WHERE day_diff IS NOT NULL AND day_diff > 0
+                GROUP BY customerId
+              ) stats ON c.id = stats.customerId
+              SET c.avgRepurchaseDays = stats.avg_days
+            `));
+
+            console.log('[Complete Job] Customer stats, lifecycle, and avgRepurchaseDays updated successfully');
           } catch (statsErr: any) {
             console.error('[Complete Job] Stats update error:', statsErr.message);
           }

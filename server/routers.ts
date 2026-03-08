@@ -36,6 +36,8 @@ import {
   preCreateUser,
   logAudit,
   getAuditLogs,
+  getCustomerAnalyticsStats,
+  getCustomerRegistrationTrend,
 } from "./db";
 import { PERMISSION_KEYS, type PermissionKey } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
@@ -101,6 +103,20 @@ export const appRouter = router({
       .input(filtersSchema.optional())
       .query(async ({ input }) => {
         return getLifecycleDistribution(input ?? {});
+      }),
+
+    /** Customer analytics stats */
+    customerAnalyticsStats: protectedProcedure
+      .input(filtersSchema.optional())
+      .query(async ({ input }) => {
+        return getCustomerAnalyticsStats(input ?? {});
+      }),
+
+    /** Customer registration trend */
+    customerRegistrationTrend: protectedProcedure
+      .input(filtersSchema.optional())
+      .query(async ({ input }) => {
+        return getCustomerRegistrationTrend(input ?? {});
       }),
 
     /** Customer list */

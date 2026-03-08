@@ -1,0 +1,16 @@
+{
+  "query": "SELECT MAX(registeredAt) as newest, MIN(registeredAt) as oldest, COUNT(*) as total, SUM(CASE WHEN registeredAt IS NULL THEN 1 ELSE 0 END) as null_count FROM customers;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT MAX(registeredAt) as newest, MIN(registeredAt) as oldest, COUNT(*) as total, SUM(CASE WHEN registeredAt IS NULL THEN 1 ELSE 0 END) as null_count FROM customers;",
+  "rows": [
+    {
+      "newest": "2020-12-31 00:00:00",
+      "oldest": "2018-01-01 00:00:00",
+      "total": "93665",
+      "null_count": "56320"
+    }
+  ],
+  "messages": [],
+  "stdout": "newest\toldest\ttotal\tnull_count\n2020-12-31 00:00:00\t2018-01-01 00:00:00\t93665\t56320\n",
+  "stderr": "",
+  "execution_time_ms": 1629
+}

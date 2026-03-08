@@ -621,7 +621,7 @@ export async function getCustomerList(filters: DashboardFilters & {
     .select()
     .from(customers)
     .where(where)
-    .orderBy(desc(customers.totalSpent))
+    .orderBy(desc(customers.lastShipmentAt))
     .limit(limit)
     .offset(page * limit);
 
@@ -629,6 +629,72 @@ export async function getCustomerList(filters: DashboardFilters & {
     items,
     total: Number(countResult?.count || 0),
   };
+}
+
+/** Get customer analytics stats */
+export async function getCustomerAnalyticsStats(filters: DashboardFilters = {}) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const conditions: any[] = [];
+  if (filters.lifecycles && filters.lifecycles.length > 0) {
+    conditions.push(inArray(customers.lifecycle, filters.lifecycles as any));
+  }
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [stats] = await db
+    .select({
+      totalCustomers: sql<number>`COUNT(*)`,
+      activeCustomers: sql<number>`SUM(CASE WHEN ${customers.totalOrders} > 0 THEN 1 ELSE 0 END)`,
+      avgSpent: sql<string>`COALESCE(AVG(CASE WHEN ${customers.totalSpent} > 0 THEN ${customers.totalSpent} END), 0)`,
+      avgOrders: sql<string>`COALESCE(AVG(CASE WHEN ${customers.totalOrders} > 0 THEN ${customers.totalOrders} END), 0)`,
+      avgRepurchaseDays: sql<string>`COALESCE(AVG(${customers.avgRepurchaseDays}), 0)`,
+      totalRevenue: sql<string>`COALESCE(SUM(${customers.totalSpent}), 0)`,
+      repurchaseRate: sql<string>`COALESCE(
+        SUM(CASE WHEN ${customers.totalOrders} > 1 THEN 1 ELSE 0 END) * 100.0 / 
+        NULLIF(SUM(CASE WHEN ${customers.totalOrders} > 0 THEN 1 ELSE 0 END), 0)
+      , 0)`,
+    })
+    .from(customers)
+    .where(where);
+
+  return {
+    totalCustomers: Number(stats?.totalCustomers || 0),
+    activeCustomers: Number(stats?.activeCustomers || 0),
+    avgSpent: parseFloat(String(stats?.avgSpent || '0')),
+    avgOrders: parseFloat(String(stats?.avgOrders || '0')),
+    avgRepurchaseDays: Math.round(parseFloat(String(stats?.avgRepurchaseDays || '0'))),
+    totalRevenue: parseFloat(String(stats?.totalRevenue || '0')),
+    repurchaseRate: parseFloat(String(stats?.repurchaseRate || '0')),
+  };
+}
+
+/** Get monthly customer registration trend */
+export async function getCustomerRegistrationTrend(filters: DashboardFilters = {}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions: any[] = [];
+  conditions.push(isNotNull(customers.registeredAt));
+  if (filters.lifecycles && filters.lifecycles.length > 0) {
+    conditions.push(inArray(customers.lifecycle, filters.lifecycles as any));
+  }
+  const where = and(...conditions);
+
+  // Use raw SQL to avoid Drizzle's column reference mismatch in GROUP BY with only_full_group_by mode
+  const lifecycleClause = (filters.lifecycles && filters.lifecycles.length > 0)
+    ? `AND \`lifecycle\` IN (${filters.lifecycles.map(l => `'${l}'`).join(',')})`
+    : '';
+  const rawResult = await db.execute(sql.raw(
+    `SELECT DATE_FORMAT(registeredAt, '%Y-%m') as month, COUNT(*) as count, COALESCE(SUM(totalSpent), 0) as totalSpent FROM \`customers\` WHERE registeredAt IS NOT NULL ${lifecycleClause} GROUP BY month ORDER BY month`
+  ));
+  const result = (Array.isArray(rawResult) ? rawResult[0] : rawResult) as unknown as any[];
+
+  return result.map(r => ({
+    month: r.month,
+    count: Number(r.count),
+    totalSpent: parseFloat(String(r.totalSpent)),
+  }));
 }
 
 /** Get last sync log */
@@ -893,7 +959,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
     .select()
     .from(customers)
     .where(where)
-    .orderBy(desc(customers.updatedAt))
+    .orderBy(desc(customers.registeredAt))
     .limit(limit)
     .offset(page * limit);
 

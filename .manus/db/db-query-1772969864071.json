@@ -1,0 +1,16 @@
+{
+  "query": "SELECT COUNT(*) as total_with_reg, MAX(registeredAt) as newest, MIN(registeredAt) as oldest, (SELECT COUNT(*) FROM customers WHERE registeredAt IS NULL) as null_count FROM customers WHERE registeredAt IS NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT COUNT(*) as total_with_reg, MAX(registeredAt) as newest, MIN(registeredAt) as oldest, (SELECT COUNT(*) FROM customers WHERE registeredAt IS NULL) as null_count FROM customers WHERE registeredAt IS NOT NULL;",
+  "rows": [
+    {
+      "total_with_reg": "37345",
+      "newest": "2020-12-31 00:00:00",
+      "oldest": "2018-01-01 00:00:00",
+      "null_count": "56320"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_with_reg\tnewest\toldest\tnull_count\n37345\t2020-12-31 00:00:00\t2018-01-01 00:00:00\t56320\n",
+  "stderr": "",
+  "execution_time_ms": 1720
+}

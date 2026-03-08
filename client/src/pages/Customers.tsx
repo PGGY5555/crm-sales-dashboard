@@ -5,7 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useState, useMemo } from "react";
-import { Search, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Users,
+  DollarSign,
+  ShoppingCart,
+  CalendarClock,
+  Repeat,
+  TrendingUp,
+} from "lucide-react";
 import {
   PieChart,
   Pie,
@@ -18,6 +28,8 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  AreaChart,
+  Area,
 } from "recharts";
 
 const LIFECYCLE_OPTIONS = [
@@ -41,15 +53,21 @@ export default function Customers() {
     lifecycles: selectedLifecycles.length > 0 ? selectedLifecycles : undefined,
   }), [page, search, selectedLifecycles]);
 
-  const { data: customerData, isLoading: customersLoading } =
-    trpc.dashboard.customers.useQuery(queryInput);
-
   const lifecycleFilter = useMemo(() => ({
     lifecycles: selectedLifecycles.length > 0 ? selectedLifecycles : undefined,
   }), [selectedLifecycles]);
 
+  const { data: customerData, isLoading: customersLoading } =
+    trpc.dashboard.customers.useQuery(queryInput);
+
   const { data: lifecycle, isLoading: lifecycleLoading } =
     trpc.dashboard.lifecycle.useQuery(lifecycleFilter);
+
+  const { data: analyticsStats, isLoading: statsLoading } =
+    trpc.dashboard.customerAnalyticsStats.useQuery(lifecycleFilter);
+
+  const { data: registrationTrend, isLoading: trendLoading } =
+    trpc.dashboard.customerRegistrationTrend.useQuery(lifecycleFilter);
 
   const toggleLifecycle = (val: string) => {
     setSelectedLifecycles((prev) =>
@@ -75,6 +93,12 @@ export default function Customers() {
     );
   };
 
+  const formatCurrency = (val: number) => {
+    if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
+    if (val >= 1000) return `$${(val / 1000).toFixed(0)}K`;
+    return `$${val.toFixed(0)}`;
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -82,6 +106,84 @@ export default function Customers() {
         <p className="text-muted-foreground mt-1">
           客戶生命週期分類、回購天數與詳細資料
         </p>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {statsLoading ? (
+          [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24" />)
+        ) : analyticsStats ? (
+          <>
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-blue-200/50 dark:border-blue-800/30">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-1">
+                  <Users className="h-4 w-4" />
+                  <span className="text-xs font-medium">總客戶數</span>
+                </div>
+                <p className="text-xl font-bold">{analyticsStats.totalCustomers.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  有消費 {analyticsStats.activeCustomers.toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-green-200/50 dark:border-green-800/30">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-green-600 dark:text-green-400 mb-1">
+                  <DollarSign className="h-4 w-4" />
+                  <span className="text-xs font-medium">總營收</span>
+                </div>
+                <p className="text-xl font-bold">{formatCurrency(analyticsStats.totalRevenue)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-purple-200/50 dark:border-purple-800/30">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400 mb-1">
+                  <ShoppingCart className="h-4 w-4" />
+                  <span className="text-xs font-medium">平均消費</span>
+                </div>
+                <p className="text-xl font-bold">{formatCurrency(analyticsStats.avgSpent)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  均 {analyticsStats.avgOrders.toFixed(1)} 次
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/30 dark:to-orange-900/20 border-orange-200/50 dark:border-orange-800/30">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 mb-1">
+                  <CalendarClock className="h-4 w-4" />
+                  <span className="text-xs font-medium">平均回購天數</span>
+                </div>
+                <p className="text-xl font-bold">
+                  {analyticsStats.avgRepurchaseDays > 0
+                    ? `${analyticsStats.avgRepurchaseDays} 天`
+                    : "—"}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20 border-rose-200/50 dark:border-rose-800/30">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 mb-1">
+                  <Repeat className="h-4 w-4" />
+                  <span className="text-xs font-medium">回購率</span>
+                </div>
+                <p className="text-xl font-bold">{analyticsStats.repurchaseRate.toFixed(1)}%</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-teal-50 to-teal-100/50 dark:from-teal-950/30 dark:to-teal-900/20 border-teal-200/50 dark:border-teal-800/30">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 mb-1">
+                  <TrendingUp className="h-4 w-4" />
+                  <span className="text-xs font-medium">客單價</span>
+                </div>
+                <p className="text-xl font-bold">
+                  {analyticsStats.activeCustomers > 0
+                    ? formatCurrency(analyticsStats.totalRevenue / analyticsStats.activeCustomers)
+                    : "—"}
+                </p>
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
       </div>
 
       {/* Lifecycle Filter Chips */}
@@ -121,7 +223,7 @@ export default function Customers() {
         )}
       </div>
 
-      {/* Charts */}
+      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -157,7 +259,7 @@ export default function Customers() {
                   </Pie>
                   <Tooltip
                     formatter={(value: number, name: string) => [
-                      `${value} 人`,
+                      `${value.toLocaleString()} 人`,
                       name,
                     ]}
                     contentStyle={{
@@ -228,6 +330,89 @@ export default function Customers() {
         </Card>
       </div>
 
+      {/* Registration Trend Area Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">客戶註冊趨勢（月）</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {trendLoading ? (
+            <Skeleton className="h-[280px] w-full" />
+          ) : registrationTrend && registrationTrend.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={registrationTrend}>
+                <defs>
+                  <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorSpent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => {
+                    const parts = v.split("-");
+                    return `${parts[0].slice(2)}/${parts[1]}`;
+                  }}
+                />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => v.toLocaleString()}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => formatCurrency(v)}
+                />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: "8px",
+                    border: "1px solid var(--border)",
+                    background: "var(--card)",
+                  }}
+                  formatter={(value: number, name: string) => {
+                    if (name === "新增客戶") return [`${value.toLocaleString()} 人`, name];
+                    return [`$${value.toLocaleString()}`, name];
+                  }}
+                />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "12px" }} />
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="count"
+                  name="新增客戶"
+                  stroke="#6366f1"
+                  fillOpacity={1}
+                  fill="url(#colorCount)"
+                  strokeWidth={2}
+                />
+                <Area
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="totalSpent"
+                  name="消費總額"
+                  stroke="#22c55e"
+                  fillOpacity={1}
+                  fill="url(#colorSpent)"
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[280px] flex items-center justify-center text-muted-foreground">
+              暫無數據
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Customer Table */}
       <Card>
         <CardHeader>
@@ -236,7 +421,7 @@ export default function Customers() {
               客戶列表
               {customerData && (
                 <span className="text-muted-foreground font-normal ml-2">
-                  ({customerData.total} 筆)
+                  ({customerData.total.toLocaleString()} 筆，依最後出貨日排序)
                 </span>
               )}
             </CardTitle>
@@ -300,7 +485,7 @@ export default function Customers() {
                           ${parseFloat(String(cust.totalSpent)).toLocaleString()}
                         </td>
                         <td className="py-3 px-2 text-right">
-                          {cust.avgRepurchaseDays !== null
+                          {cust.avgRepurchaseDays !== null && cust.avgRepurchaseDays !== undefined && cust.avgRepurchaseDays > 0
                             ? `${cust.avgRepurchaseDays} 天`
                             : "—"}
                         </td>

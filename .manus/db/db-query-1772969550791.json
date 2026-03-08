@@ -1,0 +1,14 @@
+{
+  "query": "SELECT COUNT(*) as total, COUNT(registeredAt) as with_registered FROM customers;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT COUNT(*) as total, COUNT(registeredAt) as with_registered FROM customers;",
+  "rows": [
+    {
+      "total": "93665",
+      "with_registered": "37345"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\twith_registered\n93665\t37345\n",
+  "stderr": "",
+  "execution_time_ms": 1632
+}
