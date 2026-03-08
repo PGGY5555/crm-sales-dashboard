@@ -1,0 +1,1 @@
+ALTER TABLE `importJobs` ADD `jsonUrl` text;

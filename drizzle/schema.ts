@@ -238,6 +238,7 @@ export const importJobs = mysqlTable("importJobs", {
   fileName: varchar("fileName", { length: 512 }),
   fileUrl: text("fileUrl"), // S3 URL for the uploaded Excel file
   fileKey: varchar("fileKey", { length: 512 }), // S3 key for the uploaded Excel file
+  jsonUrl: text("jsonUrl"), // S3 URL for pre-parsed JSON data (avoids re-parsing Excel each chunk)
   status: mysqlEnum("status", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
   totalRows: int("totalRows").default(0),
   processedRows: int("processedRows").default(0),

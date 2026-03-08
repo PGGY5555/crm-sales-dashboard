@@ -204,6 +204,8 @@ export default function Sync() {
     const setter = getStateSetter(fileType);
     const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
     let stopped = false;
+    let retryCount = 0;
+    const MAX_RETRIES = 10;
 
     // Repeatedly call /api/import/process until done
     const processNextChunk = async () => {
@@ -222,16 +224,22 @@ export default function Sync() {
 
         const data = await resp.json();
         console.log("[Import Chunk]", data);
+        retryCount = 0; // Reset retry count on success
 
         const totalRows = data.totalRows || 1;
         const processedRows = data.processedRows || 0;
         const progress = Math.min(Math.round((processedRows / totalRows) * 100), 100);
 
+        // Show different message for parsing phase vs importing phase
+        const detail = data.phase === "parsing"
+          ? data.message || `正在解析 Excel 檔案（${totalRows.toLocaleString()} 筆）...`
+          : `已處理 ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} 筆（成功 ${(data.successRows || 0).toLocaleString()}，錯誤 ${(data.errorRows || 0).toLocaleString()}）`;
+
         setter(prev => ({
           ...prev,
           jobStatus: data.done ? (data.status === "failed" ? "failed" : "completed") : "processing",
           jobProgress: progress,
-          jobDetail: `已處理 ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} 筆（成功 ${(data.successRows || 0).toLocaleString()}，錯誤 ${(data.errorRows || 0).toLocaleString()}）`,
+          jobDetail: detail,
         }));
 
         if (data.done || data.status === "completed" || data.status === "failed") {
@@ -258,10 +266,21 @@ export default function Sync() {
         setTimeout(processNextChunk, 500);
       } catch (err: any) {
         console.error("[Import Chunk] Error:", err);
-        // Retry after a delay (network error, temporary failure)
+        retryCount++;
+        if (retryCount >= MAX_RETRIES) {
+          stopped = true;
+          setter(prev => ({
+            ...prev,
+            uploading: false,
+            jobStatus: "failed",
+            result: { success: false, error: `處理失敗（已重試 ${MAX_RETRIES} 次）: ${err.message}` },
+          }));
+          toast.error(`${typeLabel}資料匯入失敗：已重試 ${MAX_RETRIES} 次仍無法完成`);
+          return;
+        }
         setter(prev => ({
           ...prev,
-          jobDetail: prev.jobDetail + " (重試中...)",
+          jobDetail: (prev.jobDetail || "") + ` (重試中 ${retryCount}/${MAX_RETRIES}...)`,
         }));
         setTimeout(processNextChunk, 3000);
       }

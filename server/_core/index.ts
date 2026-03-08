@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
 import {
+  parseAndStoreJson,
   importCustomersChunk,
   importOrdersChunk,
   importProductsChunk,
@@ -153,8 +154,8 @@ async function startServer() {
   });
 
   // ===== STEP 2: Process import job ONE CHUNK at a time =====
-  // Frontend calls this repeatedly until job is completed/failed.
-  // Each call processes ~2000 rows and returns within 15-20 seconds.
+  // Phase 1 (first call, no jsonUrl): Download Excel → parse → store JSON to S3
+  // Phase 2 (subsequent calls, has jsonUrl): Download JSON → bulk INSERT chunk → return
   app.post("/api/import/process", async (req, res) => {
     try {
       const auth = await verifyAdminSession(req);
@@ -183,7 +184,7 @@ async function startServer() {
       }
 
       if (job.status === "completed") {
-        res.json({ status: "completed", done: true, processedRows: job.processedRows, successRows: job.successRows, errorRows: job.errorRows });
+        res.json({ status: "completed", done: true, processedRows: job.processedRows, successRows: job.successRows, errorRows: job.errorRows, totalRows: job.totalRows });
         return;
       }
       if (job.status === "failed") {
@@ -196,7 +197,6 @@ async function startServer() {
         await db.update(importJobs).set({ status: "processing" }).where(eq(importJobs.id, jobId));
       }
 
-      // Download file from S3
       if (!job.fileUrl) {
         await db.update(importJobs).set({
           status: "failed",
@@ -207,50 +207,45 @@ async function startServer() {
         return;
       }
 
-      let fileBuffer: Buffer;
-      try {
-        const fileResponse = await fetch(job.fileUrl);
-        if (!fileResponse.ok) throw new Error(`HTTP ${fileResponse.status}`);
-        const arrayBuffer = await fileResponse.arrayBuffer();
-        fileBuffer = Buffer.from(arrayBuffer);
-      } catch (dlErr: any) {
-        await db.update(importJobs).set({
-          status: "failed",
-          errorMessage: "從儲存空間下載檔案失敗: " + dlErr.message,
-          completedAt: new Date(),
-        }).where(eq(importJobs.id, jobId));
-        res.json({ status: "failed", done: true, message: "下載檔案失敗: " + dlErr.message });
-        return;
-      }
-
       const typeLabels: Record<string, string> = {
         customers: '顧客列表', orders: '訂單列表', products: '商品列表', logistics: '訂單物流檔',
       };
 
-      // Process ONE CHUNK (the chunk functions handle offset tracking via job.processedRows)
       try {
+        // PHASE 1: If no jsonUrl yet, parse Excel and store JSON to S3
+        if (!job.jsonUrl) {
+          console.log(`[Import] Job ${jobId}: Phase 1 - parsing Excel and storing JSON...`);
+          const parseResult = await parseAndStoreJson(jobId, job.fileUrl, job.fileType);
+          res.json({
+            status: "processing",
+            ...parseResult,
+          });
+          return;
+        }
+
+        // PHASE 2: Process one chunk from JSON
+        console.log(`[Import] Job ${jobId}: Phase 2 - importing chunk at offset ${job.processedRows || 0}...`);
         let chunkResult: { done: boolean; processedRows: number; successRows: number; errorRows: number; totalRows: number };
         const offset = job.processedRows || 0;
 
         switch (job.fileType) {
           case "customers":
-            chunkResult = await importCustomersChunk(fileBuffer, jobId, offset);
+            chunkResult = await importCustomersChunk(job.jsonUrl, jobId, offset);
             break;
           case "orders":
-            chunkResult = await importOrdersChunk(fileBuffer, jobId, offset);
+            chunkResult = await importOrdersChunk(job.jsonUrl, jobId, offset);
             break;
           case "products":
-            chunkResult = await importProductsChunk(fileBuffer, jobId, offset);
+            chunkResult = await importProductsChunk(job.jsonUrl, jobId, offset);
             break;
           case "logistics":
-            chunkResult = await importLogisticsChunk(fileBuffer, jobId, offset);
+            chunkResult = await importLogisticsChunk(job.jsonUrl, jobId, offset);
             break;
           default:
             throw new Error("不支援的檔案類型: " + job.fileType);
         }
 
         if (chunkResult.done) {
-          // Log completion
           await logAudit({
             userId: dbUser.id,
             userName: dbUser.name || dbUser.email || 'unknown',
