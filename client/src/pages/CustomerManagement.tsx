@@ -50,7 +50,7 @@ export default function CustomerManagement() {
   const canExport = hasPermission("customer_mgmt_export");
 
   // X-axis search
-  const [searchField, setSearchField] = useState<SearchFieldType>("customerName");
+  const [searchField, setSearchField] = useState<SearchFieldType>("customerPhone");
   const [searchValue, setSearchValue] = useState("");
 
   // Y-axis filters

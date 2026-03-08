@@ -46,7 +46,7 @@ export default function OrderManagement() {
   const canExport = hasPermission("order_mgmt_export");
 
   // X-axis search
-  const [searchField, setSearchField] = useState<SearchFieldType>("orderNumber");
+  const [searchField, setSearchField] = useState<SearchFieldType>("customerPhone");
   const [searchValue, setSearchValue] = useState("");
 
   // Y-axis filters
