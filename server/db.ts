@@ -1388,21 +1388,19 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
     })
     .from(customers);
 
-  // Step 2: Batch query - count shipped orders per customer in each interval
-  // Using raw SQL for efficiency
+  // Step 2: Query orders table directly (much faster than LEFT JOIN with OR)
+  // Only customers with shipped orders will appear; others default to 0
   const shippedOrderStats = await db.execute(sql`
     SELECT 
-      c.id AS customerId,
-      SUM(CASE WHEN o.shipped_at >= ${sixMonthsAgoStr} AND o.shipped_at <= ${refDateStr} THEN 1 ELSE 0 END) AS ordersIn6m,
-      SUM(CASE WHEN o.shipped_at >= ${oneYearAgoStr} AND o.shipped_at < ${sixMonthsAgoStr} THEN 1 ELSE 0 END) AS ordersIn6to12m
-    FROM customers c
-    LEFT JOIN orders o ON (
-      (o.customer_id = c.id OR o.customer_external_id = c.external_id)
-      AND o.order_status != -1
-      AND o.is_shipped = 1
-      AND o.shipped_at IS NOT NULL
-    )
-    GROUP BY c.id
+      o.customerId,
+      SUM(CASE WHEN o.shippedAt >= ${sixMonthsAgoStr} AND o.shippedAt <= ${refDateStr} THEN 1 ELSE 0 END) AS ordersIn6m,
+      SUM(CASE WHEN o.shippedAt >= ${oneYearAgoStr} AND o.shippedAt < ${sixMonthsAgoStr} THEN 1 ELSE 0 END) AS ordersIn6to12m
+    FROM orders o
+    WHERE o.orderStatus != -1
+      AND o.isShipped = 1
+      AND o.shippedAt IS NOT NULL
+      AND o.customerId IS NOT NULL
+    GROUP BY o.customerId
   `);
 
   // Build lookup map

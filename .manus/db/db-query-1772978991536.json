@@ -1,0 +1,60 @@
+{
+  "query": "SELECT \n  o.customerId,\n  SUM(CASE WHEN o.shippedAt >= '2025-09-09 00:00:00' AND o.shippedAt <= '2026-03-08 23:59:59' THEN 1 ELSE 0 END) AS ordersIn6m,\n  SUM(CASE WHEN o.shippedAt >= '2025-03-08 00:00:00' AND o.shippedAt < '2025-09-09 00:00:00' THEN 1 ELSE 0 END) AS ordersIn6to12m\nFROM orders o\nWHERE o.orderStatus != -1\n  AND o.isShipped = 1\n  AND o.shippedAt IS NOT NULL\n  AND o.customerId IS NOT NULL\nGROUP BY o.customerId\nLIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT \n  o.customerId,\n  SUM(CASE WHEN o.shippedAt >= '2025-09-09 00:00:00' AND o.shippedAt <= '2026-03-08 23:59:59' THEN 1 ELSE 0 END) AS ordersIn6m,\n  SUM(CASE WHEN o.shippedAt >= '2025-03-08 00:00:00' AND o.shippedAt < '2025-09-09 00:00:00' THEN 1 ELSE 0 END) AS ordersIn6to12m\nFROM orders o\nWHERE o.orderStatus != -1\n  AND o.isShipped = 1\n  AND o.shippedAt IS NOT NULL\n  AND o.customerId IS NOT NULL\nGROUP BY o.customerId\nLIMIT 10;",
+  "rows": [
+    {
+      "customerId": "177943",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "154460",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "157947",
+      "ordersIn6m": "0",
+      "ordersIn6to12m": "1"
+    },
+    {
+      "customerId": "158071",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "153346",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "152380",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "153091",
+      "ordersIn6m": "2",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "163863",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "1"
+    },
+    {
+      "customerId": "158155",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "152631",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "customerId\tordersIn6m\tordersIn6to12m\n177943\t1\t0\n154460\t1\t0\n157947\t0\t1\n158071\t1\t0\n153346\t1\t0\n152380\t1\t0\n153091\t2\t0\n163863\t1\t1\n158155\t1\t0\n152631\t1\t0\n",
+  "stderr": "",
+  "execution_time_ms": 1625
+}

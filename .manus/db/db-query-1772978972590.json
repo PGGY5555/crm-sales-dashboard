@@ -1,0 +1,35 @@
+{
+  "query": "SELECT \n  c.id AS customerId,\n  SUM(CASE WHEN o.shippedAt >= '2025-09-09 14:05:16' AND o.shippedAt <= '2026-03-08 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6m,\n  SUM(CASE WHEN o.shippedAt >= '2025-03-08 14:05:16' AND o.shippedAt < '2025-09-09 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6to12m\nFROM customers c\nLEFT JOIN orders o ON (\n  (o.customerId = c.id OR o.customerExternalId = c.externalId)\n  AND o.orderStatus != -1\n  AND o.isShipped = 1\n  AND o.shippedAt IS NOT NULL\n)\nGROUP BY c.id\nLIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT \n  c.id AS customerId,\n  SUM(CASE WHEN o.shippedAt >= '2025-09-09 14:05:16' AND o.shippedAt <= '2026-03-08 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6m,\n  SUM(CASE WHEN o.shippedAt >= '2025-03-08 14:05:16' AND o.shippedAt < '2025-09-09 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6to12m\nFROM customers c\nLEFT JOIN orders o ON (\n  (o.customerId = c.id OR o.customerExternalId = c.externalId)\n  AND o.orderStatus != -1\n  AND o.isShipped = 1\n  AND o.shippedAt IS NOT NULL\n)\nGROUP BY c.id\nLIMIT 5;",
+  "rows": [
+    {
+      "customerId": "136125",
+      "ordersIn6m": "0",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "166076",
+      "ordersIn6m": "0",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "115821",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "152455",
+      "ordersIn6m": "1",
+      "ordersIn6to12m": "0"
+    },
+    {
+      "customerId": "177398",
+      "ordersIn6m": "0",
+      "ordersIn6to12m": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "customerId\tordersIn6m\tordersIn6to12m\n136125\t0\t0\n166076\t0\t0\n115821\t1\t0\n152455\t1\t0\n177398\t0\t0\n",
+  "stderr": "",
+  "execution_time_ms": 56533
+}

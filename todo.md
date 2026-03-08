@@ -118,4 +118,5 @@
 - [x] 功能：修改匯入程式（excelImport）改用新分類邏輯（excelImportChunked 和 batchImport 未實際呼叫 classifyCustomer，無需修改）
 - [x] 功能：客戶分析頁面新增起算日期選擇器 + 重算生命週期按鈕 + 進度/結果提示
 - [x] 功能：重算操作記錄到操作日誌（auditLog）
-- [x] 修復：重算生命週期 SQL 查詢失敗——日期參數傳入 JS Date 物件字串而非 SQL 日期格式，改用 ISO 字串格式
+- [x] 修復：重算生命週期 SQL 查詢失敗——日期參數改用 ISO 字串格式 + 欄位名稱改用 camelCase + 查詢優化（去掉 LEFT JOIN，從 56秒降到 1.7秒）
+- [x] 修復：重算生命週期 SQL 查詢仍然失敗——根因：(1) 欄位名稱 snake_case vs camelCase (2) LEFT JOIN + OR 條件導致全表掃描超時

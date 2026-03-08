@@ -1,0 +1,8 @@
+{
+  "query": "SELECT \n  c.id AS customerId,\n  SUM(CASE WHEN o.shipped_at >= '2025-09-09 14:05:16' AND o.shipped_at <= '2026-03-08 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6m,\n  SUM(CASE WHEN o.shipped_at >= '2025-03-08 14:05:16' AND o.shipped_at < '2025-09-09 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6to12m\nFROM customers c\nLEFT JOIN orders o ON (\n  (o.customer_id = c.id OR o.customer_external_id = c.external_id)\n  AND o.order_status != -1\n  AND o.is_shipped = 1\n  AND o.shipped_at IS NOT NULL\n)\nGROUP BY c.id\nLIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT \n  c.id AS customerId,\n  SUM(CASE WHEN o.shipped_at >= '2025-09-09 14:05:16' AND o.shipped_at <= '2026-03-08 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6m,\n  SUM(CASE WHEN o.shipped_at >= '2025-03-08 14:05:16' AND o.shipped_at < '2025-09-09 14:05:16' THEN 1 ELSE 0 END) AS ordersIn6to12m\nFROM customers c\nLEFT JOIN orders o ON (\n  (o.customer_id = c.id OR o.customer_external_id = c.external_id)\n  AND o.order_status != -1\n  AND o.is_shipped = 1\n  AND o.shipped_at IS NOT NULL\n)\nGROUP BY c.id\nLIMIT 5;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'o.customer_id' in 'on clause'"
+  ]
+}
