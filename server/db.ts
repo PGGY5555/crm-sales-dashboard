@@ -1372,6 +1372,12 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
   const sixMonthsAgo = new Date(refTime - sixMonthsMs);
   const oneYearAgo = new Date(refTime - oneYearMs);
 
+  // Format dates as MySQL-compatible strings for raw SQL
+  const fmt = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ');
+  const refDateStr = fmt(referenceDate);
+  const sixMonthsAgoStr = fmt(sixMonthsAgo);
+  const oneYearAgoStr = fmt(oneYearAgo);
+
   // Step 1: Get all customers with their lastShipmentAt and registeredAt
   const allCustomers = await db
     .select({
@@ -1387,8 +1393,8 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
   const shippedOrderStats = await db.execute(sql`
     SELECT 
       c.id AS customerId,
-      SUM(CASE WHEN o.shipped_at >= ${sixMonthsAgo} AND o.shipped_at <= ${referenceDate} THEN 1 ELSE 0 END) AS ordersIn6m,
-      SUM(CASE WHEN o.shipped_at >= ${oneYearAgo} AND o.shipped_at < ${sixMonthsAgo} THEN 1 ELSE 0 END) AS ordersIn6to12m
+      SUM(CASE WHEN o.shipped_at >= ${sixMonthsAgoStr} AND o.shipped_at <= ${refDateStr} THEN 1 ELSE 0 END) AS ordersIn6m,
+      SUM(CASE WHEN o.shipped_at >= ${oneYearAgoStr} AND o.shipped_at < ${sixMonthsAgoStr} THEN 1 ELSE 0 END) AS ordersIn6to12m
     FROM customers c
     LEFT JOIN orders o ON (
       (o.customer_id = c.id OR o.customer_external_id = c.external_id)
