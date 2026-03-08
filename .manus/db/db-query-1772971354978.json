@@ -1,0 +1,120 @@
+{
+  "query": "SELECT id, fileName, fileType, status, totalRows, processedRows, successRows, errorRows, createdAt FROM importJobs ORDER BY id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT id, fileName, fileType, status, totalRows, processedRows, successRows, errorRows, createdAt FROM importJobs ORDER BY id DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "30007",
+      "fileName": "order1201-0331.xlsx",
+      "fileType": "orders",
+      "status": "completed",
+      "totalRows": "2172",
+      "processedRows": "2172",
+      "successRows": "2172",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 10:51:38"
+    },
+    {
+      "id": "30006",
+      "fileName": "order0831-1130.xlsx",
+      "fileType": "orders",
+      "status": "completed",
+      "totalRows": "2494",
+      "processedRows": "2494",
+      "successRows": "2494",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 10:45:30"
+    },
+    {
+      "id": "30005",
+      "fileName": "order0415-0731.xlsx",
+      "fileType": "orders",
+      "status": "processing",
+      "totalRows": "2666",
+      "processedRows": "500",
+      "successRows": "500",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 10:45:06"
+    },
+    {
+      "id": "30004",
+      "fileName": "order0415-0731.xlsx",
+      "fileType": "orders",
+      "status": "completed",
+      "totalRows": "2666",
+      "processedRows": "2666",
+      "successRows": "2666",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 10:39:45"
+    },
+    {
+      "id": "30003",
+      "fileName": "2021_20260308-2.xlsx",
+      "fileType": "customers",
+      "status": "completed",
+      "totalRows": "31451",
+      "processedRows": "31451",
+      "successRows": "31451",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 10:38:21"
+    },
+    {
+      "id": "30002",
+      "fileName": "2021_20260308-1.xlsx",
+      "fileType": "customers",
+      "status": "completed",
+      "totalRows": "24878",
+      "processedRows": "24878",
+      "successRows": "24878",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 10:37:16"
+    },
+    {
+      "id": "30001",
+      "fileName": "2021_20260308.xlsx",
+      "fileType": "customers",
+      "status": "failed",
+      "totalRows": "61813",
+      "processedRows": "0",
+      "successRows": "0",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 10:15:13"
+    },
+    {
+      "id": "5",
+      "fileName": "2021_20260308.xlsx",
+      "fileType": "customers",
+      "status": "failed",
+      "totalRows": "61813",
+      "processedRows": "0",
+      "successRows": "0",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 09:06:05"
+    },
+    {
+      "id": "4",
+      "fileName": "2021_20260308.xlsx",
+      "fileType": "customers",
+      "status": "failed",
+      "totalRows": "61813",
+      "processedRows": "0",
+      "successRows": "0",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 08:48:53"
+    },
+    {
+      "id": "3",
+      "fileName": "2021_20260308.xlsx",
+      "fileType": "customers",
+      "status": "failed",
+      "totalRows": "61813",
+      "processedRows": "0",
+      "successRows": "0",
+      "errorRows": "0",
+      "createdAt": "2026-03-08 08:03:12"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfileName\tfileType\tstatus\ttotalRows\tprocessedRows\tsuccessRows\terrorRows\tcreatedAt\n30007\torder1201-0331.xlsx\torders\tcompleted\t2172\t2172\t2172\t0\t2026-03-08 10:51:38\n30006\torder0831-1130.xlsx\torders\tcompleted\t2494\t2494\t2494\t0\t2026-03-08 10:45:30\n30005\torder0415-0731.xlsx\torders\tprocessing\t2666\t500\t500\t0\t2026-03-08 10:45:06\n30004\torder0415-0731.xlsx\torders\tcompleted\t2666\t2666\t2666\t0\t2026-03-08 10:39:45\n30003\t2021_20260308-2.xlsx\tcustomers\tcompleted\t31451\t31451\t31451\t0\t2026-03-08 10:38:21\n30002\t2021_20260308-1.xlsx\tcustomers\tcompleted\t24878\t24878\t24878\t0\t2026-03-08 10:37:16\n30001\t2021_20260308.xlsx\tcustomers\tfailed\t61813\t0\t0\t0\t2026-03-08 10:15:13\n5\t2021_20260308.xlsx\tcustomers\tfailed\t61813\t0\t0\t0\t2026-03-08 09:06:05\n4\t2021_20260308.xlsx\tcustomers\tfailed\t61813\t0\t0\t0\t2026-03-08 08:48:53\n3\t2021_20260308.xlsx\tcustomers\tfailed\t61813\t0\t0\t0\t2026-03-08 08:03:12\n",
+  "stderr": "",
+  "execution_time_ms": 1666
+}

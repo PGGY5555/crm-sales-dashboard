@@ -37,6 +37,7 @@ interface CustomerRow {
   "統一編號"?: string;
   "公司"?: string;
   "註冊時間"?: string;
+  "註冊日期"?: string;
   "備註1"?: string;
   "備註2"?: string;
   "自訂1"?: string;
@@ -370,10 +371,10 @@ export async function importCustomersFromExcel(buffer: Buffer, jobId?: number): 
             const custom3 = row["自訂3"]?.trim() || null;
 
             let registeredAt: Date | null = null;
-            const regTimeStr = row["註冊時間"]?.trim();
+            const regTimeStr = (row["註冊時間"] || row["註冊日期"])?.trim();
             if (regTimeStr) {
-              const parsed = new Date(regTimeStr);
-              if (!isNaN(parsed.getTime())) registeredAt = parsed;
+              const parsed = parseDate(regTimeStr);
+              if (parsed) registeredAt = parsed;
             }
 
             const rawJson = escJson(row);
@@ -421,7 +422,7 @@ ON DUPLICATE KEY UPDATE
                 name,
                 email,
                 phone,
-                registeredAt: (() => { const r = row["註冊時間"]?.trim(); if (!r) return null; const d = new Date(r); return isNaN(d.getTime()) ? null : d; })(),
+                registeredAt: (() => { const r = (row["註冊時間"] || row["註冊日期"])?.trim(); if (!r) return null; const d = parseDate(r); return d; })(),
                 totalOrders: 0,
                 totalSpent: "0",
                 birthday: row["生日"]?.trim() || null,
