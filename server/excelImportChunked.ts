@@ -268,13 +268,25 @@ export async function importCustomersChunk(jsonUrl: string, jobId: number, offse
         const bulkSql = `INSERT INTO customers (externalId, name, email, phone, registeredAt, totalOrders, totalSpent, birthday, tags, memberLevel, credits, recipientName, recipientPhone, recipientEmail, notes, blacklisted, lineUid, note1, note2, custom1, custom2, custom3, rawData)
 VALUES ${values}
 ON DUPLICATE KEY UPDATE
-  name = VALUES(name), phone = VALUES(phone), registeredAt = VALUES(registeredAt),
-  birthday = VALUES(birthday), tags = VALUES(tags), memberLevel = VALUES(memberLevel),
-  credits = VALUES(credits), recipientName = VALUES(recipientName),
-  recipientPhone = VALUES(recipientPhone), recipientEmail = VALUES(recipientEmail),
-  notes = VALUES(notes), blacklisted = VALUES(blacklisted), lineUid = VALUES(lineUid),
-  note1 = VALUES(note1), note2 = VALUES(note2), custom1 = VALUES(custom1),
-  custom2 = VALUES(custom2), custom3 = VALUES(custom3), rawData = VALUES(rawData)`;
+  name = IF(VALUES(name) IS NOT NULL AND VALUES(name) != '', VALUES(name), name),
+  phone = IF(VALUES(phone) IS NOT NULL AND VALUES(phone) != '', VALUES(phone), phone),
+  registeredAt = IF(VALUES(registeredAt) IS NOT NULL, VALUES(registeredAt), registeredAt),
+  birthday = IF(VALUES(birthday) IS NOT NULL AND VALUES(birthday) != '', VALUES(birthday), birthday),
+  tags = IF(VALUES(tags) IS NOT NULL AND VALUES(tags) != '', VALUES(tags), tags),
+  memberLevel = IF(VALUES(memberLevel) IS NOT NULL AND VALUES(memberLevel) != '', VALUES(memberLevel), memberLevel),
+  credits = IF(VALUES(credits) IS NOT NULL AND VALUES(credits) != '0', VALUES(credits), credits),
+  recipientName = IF(VALUES(recipientName) IS NOT NULL AND VALUES(recipientName) != '', VALUES(recipientName), recipientName),
+  recipientPhone = IF(VALUES(recipientPhone) IS NOT NULL AND VALUES(recipientPhone) != '', VALUES(recipientPhone), recipientPhone),
+  recipientEmail = IF(VALUES(recipientEmail) IS NOT NULL AND VALUES(recipientEmail) != '', VALUES(recipientEmail), recipientEmail),
+  notes = IF(VALUES(notes) IS NOT NULL AND VALUES(notes) != '', VALUES(notes), notes),
+  blacklisted = IF(VALUES(blacklisted) IS NOT NULL AND VALUES(blacklisted) != '', VALUES(blacklisted), blacklisted),
+  lineUid = IF(VALUES(lineUid) IS NOT NULL AND VALUES(lineUid) != '', VALUES(lineUid), lineUid),
+  note1 = IF(VALUES(note1) IS NOT NULL AND VALUES(note1) != '', VALUES(note1), note1),
+  note2 = IF(VALUES(note2) IS NOT NULL AND VALUES(note2) != '', VALUES(note2), note2),
+  custom1 = IF(VALUES(custom1) IS NOT NULL AND VALUES(custom1) != '', VALUES(custom1), custom1),
+  custom2 = IF(VALUES(custom2) IS NOT NULL AND VALUES(custom2) != '', VALUES(custom2), custom2),
+  custom3 = IF(VALUES(custom3) IS NOT NULL AND VALUES(custom3) != '', VALUES(custom3), custom3),
+  rawData = VALUES(rawData)`;
 
         await db.execute(sql.raw(bulkSql));
         successCount += validRows.length;

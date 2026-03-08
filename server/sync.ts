@@ -120,10 +120,10 @@ export async function syncFromShopnex(apiToken: string, appName: string): Promis
         rawData: u,
       }).onDuplicateKeyUpdate({
         set: {
-          name: u.name || u.displayName || null,
-          email: u.email || null,
-          phone: u.phone || null,
-          registeredAt: regDate,
+          name: (u.name || u.displayName) ? (u.name || u.displayName) : sql`customers.name`,
+          email: u.email ? u.email : sql`customers.email`,
+          phone: u.phone ? u.phone : sql`customers.phone`,
+          registeredAt: regDate ? regDate : sql`customers.registeredAt`,
           rawData: u,
         },
       });

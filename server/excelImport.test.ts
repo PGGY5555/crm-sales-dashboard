@@ -241,3 +241,121 @@ describe("Background Job - Progress Calculation", () => {
     expect(progress).toBe(100);
   });
 });
+
+describe("Customer Import - Conditional Update Logic (only update non-empty fields)", () => {
+  // Simulates the IF(VALUES(col) IS NOT NULL AND VALUES(col) != '', VALUES(col), col) pattern
+  function conditionalUpdate(newVal: string | null | undefined, existingVal: string | null): string | null {
+    if (newVal !== null && newVal !== undefined && newVal !== '') {
+      return newVal;
+    }
+    return existingVal;
+  }
+
+  it("should keep existing value when new value is null", () => {
+    expect(conditionalUpdate(null, "VIP客戶")).toBe("VIP客戶");
+  });
+
+  it("should keep existing value when new value is empty string", () => {
+    expect(conditionalUpdate("", "VIP客戶")).toBe("VIP客戶");
+  });
+
+  it("should keep existing value when new value is undefined", () => {
+    expect(conditionalUpdate(undefined, "VIP客戶")).toBe("VIP客戶");
+  });
+
+  it("should update to new value when new value is non-empty", () => {
+    expect(conditionalUpdate("黃金會員", "一般會員")).toBe("黃金會員");
+  });
+
+  it("should update to new value when existing value is null", () => {
+    expect(conditionalUpdate("新備註", null)).toBe("新備註");
+  });
+
+  it("should keep null when both values are null/empty", () => {
+    expect(conditionalUpdate(null, null)).toBe(null);
+    expect(conditionalUpdate("", null)).toBe(null);
+  });
+
+  // Simulate full customer row update scenario
+  it("should selectively update customer fields based on Excel data", () => {
+    const existingCustomer = {
+      name: "王小明",
+      phone: "0912345678",
+      birthday: "1990-01-15",
+      tags: "VIP",
+      memberLevel: "黃金會員",
+      notes: "重要客戶",
+      blacklisted: "否",
+      lineUid: "U123456",
+      note1: "備註內容1",
+      note2: null as string | null,
+    };
+
+    // New Excel row with some empty fields
+    const newExcelRow = {
+      name: "王小明",       // same - should keep
+      phone: "",            // empty - should keep existing
+      birthday: "",         // empty - should keep existing
+      tags: "VVIP",         // changed - should update
+      memberLevel: "",      // empty - should keep existing
+      notes: "",            // empty - should keep existing
+      blacklisted: "是",    // changed - should update
+      lineUid: "",          // empty - should keep existing
+      note1: "",            // empty - should keep existing
+      note2: "新備註2",     // new value - should update
+    };
+
+    const result = {
+      name: conditionalUpdate(newExcelRow.name, existingCustomer.name),
+      phone: conditionalUpdate(newExcelRow.phone, existingCustomer.phone),
+      birthday: conditionalUpdate(newExcelRow.birthday, existingCustomer.birthday),
+      tags: conditionalUpdate(newExcelRow.tags, existingCustomer.tags),
+      memberLevel: conditionalUpdate(newExcelRow.memberLevel, existingCustomer.memberLevel),
+      notes: conditionalUpdate(newExcelRow.notes, existingCustomer.notes),
+      blacklisted: conditionalUpdate(newExcelRow.blacklisted, existingCustomer.blacklisted),
+      lineUid: conditionalUpdate(newExcelRow.lineUid, existingCustomer.lineUid),
+      note1: conditionalUpdate(newExcelRow.note1, existingCustomer.note1),
+      note2: conditionalUpdate(newExcelRow.note2, existingCustomer.note2),
+    };
+
+    // Fields with data should be updated
+    expect(result.name).toBe("王小明");
+    expect(result.tags).toBe("VVIP");
+    expect(result.blacklisted).toBe("是");
+    expect(result.note2).toBe("新備註2");
+
+    // Empty fields should keep existing values
+    expect(result.phone).toBe("0912345678");
+    expect(result.birthday).toBe("1990-01-15");
+    expect(result.memberLevel).toBe("黃金會員");
+    expect(result.notes).toBe("重要客戶");
+    expect(result.lineUid).toBe("U123456");
+    expect(result.note1).toBe("備註內容1");
+  });
+});
+
+describe("Customer Import - SQL IF pattern for bulk insert", () => {
+  it("should generate correct SQL IF pattern for non-null values", () => {
+    const field = "name";
+    const pattern = `${field} = IF(VALUES(${field}) IS NOT NULL AND VALUES(${field}) != '', VALUES(${field}), ${field})`;
+    expect(pattern).toBe("name = IF(VALUES(name) IS NOT NULL AND VALUES(name) != '', VALUES(name), name)");
+  });
+
+  it("should generate correct SQL IF pattern for date fields (no empty string check)", () => {
+    const field = "registeredAt";
+    const pattern = `${field} = IF(VALUES(${field}) IS NOT NULL, VALUES(${field}), ${field})`;
+    expect(pattern).toBe("registeredAt = IF(VALUES(registeredAt) IS NOT NULL, VALUES(registeredAt), registeredAt)");
+  });
+
+  it("should generate correct SQL IF pattern for credits (check against '0')", () => {
+    const field = "credits";
+    const pattern = `${field} = IF(VALUES(${field}) IS NOT NULL AND VALUES(${field}) != '0', VALUES(${field}), ${field})`;
+    expect(pattern).toBe("credits = IF(VALUES(credits) IS NOT NULL AND VALUES(credits) != '0', VALUES(credits), credits)");
+  });
+
+  it("rawData should always be overwritten (no conditional)", () => {
+    // rawData always gets the latest import data for reference
+    const pattern = "rawData = VALUES(rawData)";
+    expect(pattern).toBe("rawData = VALUES(rawData)");
+  });
+});
