@@ -19,13 +19,19 @@ import {
   createImportJob,
   getImportJobStatus,
 } from "../excelImport";
+import {
+  batchImportCustomers,
+  batchImportOrders,
+  batchImportProducts,
+  batchImportLogistics,
+} from "../batchImport";
 import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { COOKIE_NAME } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import { getUserByOpenId, logAudit } from "../db";
 import { getDb } from "../db";
-import { importJobs } from "../../drizzle/schema";
+import { importJobs, syncLogs } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -282,6 +288,172 @@ async function startServer() {
     } catch (error: any) {
       console.error("[Import Process] Error:", error);
       res.status(500).json({ error: error.message || "處理失敗" });
+    }
+  });
+
+  // ===== NEW: Create import job (no file upload, just metadata) =====
+  app.post("/api/import/create-job", async (req, res) => {
+    try {
+      const auth = await verifyAdminSession(req);
+      if ("error" in auth) {
+        res.status(auth.status).json({ error: auth.error });
+        return;
+      }
+      const { dbUser } = auth;
+      const { fileType, fileName, totalRows } = req.body;
+
+      if (!fileType || !fileName || !totalRows) {
+        res.status(400).json({ error: "缺少必要參數" });
+        return;
+      }
+
+      const jobId = await createImportJob(
+        dbUser.id,
+        dbUser.name || dbUser.email || 'unknown',
+        fileType,
+        fileName,
+        totalRows,
+        '', // no fileUrl needed
+        '', // no fileKey needed
+      );
+
+      if (!jobId) {
+        res.status(500).json({ error: "無法建立匯入任務" });
+        return;
+      }
+
+      // Mark as processing immediately
+      const db = await getDb();
+      if (db) {
+        await db.update(importJobs).set({ status: "processing" }).where(eq(importJobs.id, jobId));
+      }
+
+      await logAudit({
+        userId: dbUser.id,
+        userName: dbUser.name || dbUser.email || 'unknown',
+        action: 'excel_import_start',
+        category: 'data_sync',
+        description: `開始匯入 ${fileName}`,
+        details: { jobId, fileName, fileType, totalRows },
+      }).catch(() => {});
+
+      res.json({ success: true, jobId });
+    } catch (error: any) {
+      console.error("[Create Job] Error:", error);
+      res.status(500).json({ error: error.message || "建立任務失敗" });
+    }
+  });
+
+  // ===== NEW: Batch import (receives JSON rows from frontend) =====
+  app.post("/api/import/batch", async (req, res) => {
+    try {
+      const auth = await verifyAdminSession(req);
+      if ("error" in auth) {
+        res.status(auth.status).json({ error: auth.error });
+        return;
+      }
+
+      const { jobId, fileType, batch, offset, totalRows } = req.body;
+      if (!jobId || !fileType || !batch || !Array.isArray(batch)) {
+        res.status(400).json({ error: "缺少必要參數" });
+        return;
+      }
+
+      let result: { successRows: number; errorRows: number };
+
+      switch (fileType) {
+        case "customers":
+          result = await batchImportCustomers(batch);
+          break;
+        case "orders":
+          result = await batchImportOrders(batch);
+          break;
+        case "products":
+          result = await batchImportProducts(batch);
+          break;
+        case "logistics":
+          result = await batchImportLogistics(batch);
+          break;
+        default:
+          res.status(400).json({ error: "不支援的檔案類型" });
+          return;
+      }
+
+      // Update job progress in DB
+      const db = await getDb();
+      if (db) {
+        const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+        if (job) {
+          const newSuccess = (job.successRows || 0) + result.successRows;
+          const newError = (job.errorRows || 0) + result.errorRows;
+          const newProcessed = newSuccess + newError;
+          await db.update(importJobs).set({
+            processedRows: newProcessed,
+            successRows: newSuccess,
+            errorRows: newError,
+          }).where(eq(importJobs.id, jobId));
+        }
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Batch Import] Error:", error);
+      res.status(500).json({ error: error.message || "批次匯入失敗" });
+    }
+  });
+
+  // ===== NEW: Complete import job =====
+  app.post("/api/import/complete", async (req, res) => {
+    try {
+      const auth = await verifyAdminSession(req);
+      if ("error" in auth) {
+        res.status(auth.status).json({ error: auth.error });
+        return;
+      }
+      const { dbUser } = auth;
+      const { jobId, successRows, errorRows } = req.body;
+
+      if (!jobId) {
+        res.status(400).json({ error: "缺少 jobId" });
+        return;
+      }
+
+      const db = await getDb();
+      if (db) {
+        await db.update(importJobs).set({
+          status: "completed",
+          processedRows: (successRows || 0) + (errorRows || 0),
+          successRows: successRows || 0,
+          errorRows: errorRows || 0,
+          completedAt: new Date(),
+        }).where(eq(importJobs.id, jobId));
+
+        // Get job info for audit log
+        const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+        if (job) {
+          const typeLabels: Record<string, string> = {
+            customers: '顧客列表', orders: '訂單列表', products: '商品列表', logistics: '訂單物流檔',
+          };
+          await db.insert(syncLogs).values({
+            syncType: `excel-${job.fileType}`,
+            status: "success",
+            recordsProcessed: successRows || 0,
+          });
+          await logAudit({
+            userId: dbUser.id,
+            userName: dbUser.name || dbUser.email || 'unknown',
+            action: 'excel_import_complete',
+            category: 'data_sync',
+            description: `匯入${typeLabels[job.fileType] || job.fileType}完成`,
+            details: { jobId, successRows, errorRows },
+          }).catch(() => {});
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("[Complete Job] Error:", error);
+      res.status(500).json({ error: error.message || "完成任務失敗" });
     }
   });
 

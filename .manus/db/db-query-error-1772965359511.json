@@ -1,0 +1,8 @@
+{
+  "query": "UPDATE import_jobs SET status = 'failed', error_message = '架構已改為前端解析模式，請重新上傳' WHERE id = 30001 AND status != 'completed'",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE import_jobs SET status = 'failed', error_message = '架構已改為前端解析模式，請重新上傳' WHERE id = 30001 AND status != 'completed'",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'dn8ihetpknpmgxaqbwyu7x.import_jobs' doesn't exist"
+  ]
+}

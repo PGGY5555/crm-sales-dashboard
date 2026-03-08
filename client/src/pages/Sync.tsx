@@ -25,6 +25,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Progress } from "@/components/ui/progress";
+import * as XLSX from "xlsx";
 
 type ExcelFileType = "customers" | "orders" | "products" | "logistics";
 
@@ -299,7 +300,7 @@ export default function Sync() {
     };
   }, []);
 
-  // Excel upload handler (supports background job mode)
+  // Excel upload handler: parse in browser, then batch-upload JSON to server
   const handleExcelUpload = async (fileType: ExcelFileType) => {
     const stateMap = {
       customers: { state: customerUpload, setState: setCustomerUpload },
@@ -319,66 +320,140 @@ export default function Sync() {
       uploading: true,
       result: null,
       jobId: null,
-      jobStatus: null,
+      jobStatus: "processing",
       jobProgress: 0,
-      jobDetail: null,
+      jobDetail: "正在解析 Excel 檔案...",
     });
 
+    const BATCH_SIZE = 500;
+    const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
+
     try {
-      const formData = new FormData();
-      formData.append("file", state.file);
-      formData.append("type", fileType);
+      // STEP 1: Parse Excel in browser
+      const arrayBuffer = await state.file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) throw new Error("Excel 檔案沒有工作表");
+      const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" }) as any[];
 
-      const response = await fetch("/api/upload/excel", {
-        method: "POST",
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || "上傳失敗");
+      // For orders, group by order number
+      let processedData: any[];
+      if (fileType === "orders") {
+        const orderMap = new Map<string, any[]>();
+        for (const row of rawRows) {
+          const orderNum = String(row["訂單編號"] || "").trim();
+          if (!orderNum) continue;
+          if (!orderMap.has(orderNum)) orderMap.set(orderNum, []);
+          orderMap.get(orderNum)!.push(row);
+        }
+        processedData = Array.from(orderMap.entries()).map(([num, items]) => ({ orderNum: num, items }));
+      } else {
+        processedData = rawRows;
       }
 
-      // Check if this is a background job
-      if (result.backgroundJob && result.jobId) {
-        setState(prev => ({
-          ...prev,
-          jobId: result.jobId,
-          jobStatus: "pending",
-          jobProgress: 0,
-          jobDetail: `匯入任務已建立，共 ${(result.totalRows || 0).toLocaleString()} 筆資料`,
-        }));
-        toast.info(`檔案已上傳，${(result.totalRows || 0).toLocaleString()} 筆資料將在背景處理中...`);
-        // Trigger processing and start polling for progress
-        startProcessing(fileType, result.jobId);
-      } else {
-        // Synchronous mode (small files)
-        setState({ ...state, uploading: false, result, jobId: null, jobStatus: null, jobProgress: 0, jobDetail: null });
+      const totalRows = processedData.length;
+      toast.info(`已解析 ${totalRows.toLocaleString()} 筆${typeLabel}資料，開始匯入...`);
 
-        if (result.success || result.matched !== undefined) {
-          if (fileType === "logistics") {
-            toast.success(`物流資料匯入完成！匹配 ${result.matched ?? 0} 筆，未匹配 ${result.unmatched ?? 0} 筆`);
-          } else {
-            const typeLabel = { customers: "顧客", orders: "訂單", products: "商品", logistics: "物流" }[fileType];
-            const count = result.processed ?? result.ordersProcessed ?? 0;
-            toast.success(`${typeLabel}資料匯入成功！處理 ${count} 筆記錄`);
+      setState(prev => ({
+        ...prev,
+        jobDetail: `已解析 ${totalRows.toLocaleString()} 筆資料，開始匯入...`,
+        jobProgress: 0,
+      }));
+
+      // STEP 2: Create job on server
+      const createResp = await fetch("/api/import/create-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileType, fileName: state.file.name, totalRows }),
+      });
+      if (!createResp.ok) {
+        const err = await createResp.json().catch(() => ({ error: "建立任務失敗" }));
+        throw new Error(err.error || "建立任務失敗");
+      }
+      const { jobId } = await createResp.json();
+
+      setState(prev => ({ ...prev, jobId }));
+
+      // STEP 3: Batch upload
+      let totalSuccess = 0;
+      let totalError = 0;
+      let totalProcessed = 0;
+
+      for (let offset = 0; offset < totalRows; offset += BATCH_SIZE) {
+        const batch = processedData.slice(offset, offset + BATCH_SIZE);
+        const batchNum = Math.floor(offset / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
+
+        let retries = 0;
+        const MAX_RETRIES = 3;
+        let batchSuccess = false;
+
+        while (retries < MAX_RETRIES && !batchSuccess) {
+          try {
+            const resp = await fetch("/api/import/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jobId, fileType, batch, offset, totalRows }),
+            });
+
+            if (!resp.ok) {
+              const errData = await resp.json().catch(() => ({ error: "處理失敗" }));
+              throw new Error(errData.error || "處理失敗");
+            }
+
+            const data = await resp.json();
+            totalSuccess += data.successRows || 0;
+            totalError += data.errorRows || 0;
+            totalProcessed = totalSuccess + totalError;
+            batchSuccess = true;
+
+            const progress = Math.min(Math.round((totalProcessed / totalRows) * 100), 100);
+            setState(prev => ({
+              ...prev,
+              jobStatus: "processing",
+              jobProgress: progress,
+              jobDetail: `第 ${batchNum}/${totalBatches} 批—已處理 ${totalProcessed.toLocaleString()} / ${totalRows.toLocaleString()} 筆（成功 ${totalSuccess.toLocaleString()}，錯誤 ${totalError.toLocaleString()}）`,
+            }));
+          } catch (err: any) {
+            retries++;
+            if (retries >= MAX_RETRIES) {
+              throw new Error(`第 ${batchNum} 批處理失敗（已重試 ${MAX_RETRIES} 次）: ${err.message}`);
+            }
+            setState(prev => ({
+              ...prev,
+              jobDetail: (prev.jobDetail || "") + ` (重試中 ${retries}/${MAX_RETRIES}...)`,
+            }));
+            await new Promise(r => setTimeout(r, 2000));
           }
-          refetchStatus();
-        } else {
-          toast.error(`匯入失敗: ${result.error}`);
         }
       }
-    } catch (error: any) {
-      setState({
-        ...state,
+
+      // STEP 4: Complete
+      try {
+        await fetch("/api/import/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId, successRows: totalSuccess, errorRows: totalError }),
+        });
+      } catch {}
+
+      setState(prev => ({
+        ...prev,
         uploading: false,
+        jobStatus: "completed",
+        jobProgress: 100,
+        jobDetail: `匯入完成！成功 ${totalSuccess.toLocaleString()} 筆，錯誤 ${totalError.toLocaleString()} 筆`,
+        result: { success: true, processed: totalSuccess, backgroundJob: true },
+      }));
+      toast.success(`${typeLabel}資料匯入完成！成功 ${totalSuccess.toLocaleString()} 筆`);
+      refetchStatus();
+    } catch (error: any) {
+      setState(prev => ({
+        ...prev,
+        uploading: false,
+        jobStatus: "failed",
         result: { success: false, error: error.message },
-        jobId: null,
-        jobStatus: null,
-        jobProgress: 0,
-        jobDetail: null,
-      });
+      }));
       toast.error(`匯入錯誤: ${error.message}`);
     }
   };
