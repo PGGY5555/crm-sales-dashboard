@@ -18,9 +18,11 @@ import {
   clearAllData,
   getCustomerManagement,
   getCustomerManagementExport,
+  getCustomerIdsByFilters,
   getDistinctMemberLevels,
   getOrderManagement,
   getOrderManagementExport,
+  getOrderIdsByFilters,
   getOrderFilterOptions,
   batchDeleteCustomers,
   batchUpdateCustomers,
@@ -314,30 +316,113 @@ export const appRouter = router({
     }),
 
     batchDelete: protectedProcedure
-      .input(z.object({ ids: z.array(z.number()).min(1) }))
+      .input(z.object({
+        ids: z.array(z.number()).optional(),
+        filters: z.object({
+          searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+          searchValue: z.string().optional(),
+          registeredFrom: z.date().optional(),
+          registeredTo: z.date().optional(),
+          birthdayMonth: z.number().min(1).max(12).optional(),
+          tags: z.string().optional(),
+          memberLevel: z.string().optional(),
+          creditsOp: z.enum(["lt", "gt", "eq"]).optional(),
+          creditsValue: z.number().optional(),
+          totalSpentOp: z.enum(["lt", "gt", "eq"]).optional(),
+          totalSpentValue: z.number().optional(),
+          totalOrdersOp: z.enum(["lt", "gt", "eq"]).optional(),
+          totalOrdersValue: z.number().optional(),
+          lastPurchaseFrom: z.date().optional(),
+          lastPurchaseTo: z.date().optional(),
+          lastPurchaseAmountOp: z.enum(["lt", "gt", "eq"]).optional(),
+          lastPurchaseAmountValue: z.number().optional(),
+          lastShipmentFrom: z.date().optional(),
+          lastShipmentTo: z.date().optional(),
+          lifecycles: z.array(z.string()).optional(),
+          blacklisted: z.string().optional(),
+          lineUid: z.string().optional(),
+          sfShippedFrom: z.date().optional(),
+          sfShippedTo: z.date().optional(),
+        }).optional(),
+      }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
         }
-        const result = await batchDeleteCustomers(input.ids);
+        let targetIds: number[];
+        if (input.filters) {
+          targetIds = await getCustomerIdsByFilters(input.filters);
+          if (targetIds.length === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "沒有符合篩選條件的客戶" });
+          }
+          if (targetIds.length > 5000) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `符合條件的客戶數量 (${targetIds.length}) 超過安全上限 5,000 筆，請縮小篩選範圍` });
+          }
+        } else if (input.ids && input.ids.length > 0) {
+          targetIds = input.ids;
+        } else {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請提供 ids 或 filters" });
+        }
+        const result = await batchDeleteCustomers(targetIds);
         await logAudit({
           userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
           action: "delete_customers", category: "資料刪除",
-          description: `批次刪除 ${input.ids.length} 筆客戶資料`,
-          details: { count: input.ids.length, ids: input.ids },
+          description: `批次刪除 ${targetIds.length} 筆客戶資料${input.filters ? '（全選模式）' : ''}`,
+          details: { count: targetIds.length, mode: input.filters ? 'selectAll' : 'manual', ids: targetIds.slice(0, 100) },
         });
-        return result;
+        return { ...result, deletedCount: targetIds.length };
       }),
 
     batchUpdate: protectedProcedure
       .input(z.object({
-        ids: z.array(z.number()).min(1).max(500),
+        ids: z.array(z.number()).optional(),
+        filters: z.object({
+          searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+          searchValue: z.string().optional(),
+          registeredFrom: z.date().optional(),
+          registeredTo: z.date().optional(),
+          birthdayMonth: z.number().min(1).max(12).optional(),
+          tags: z.string().optional(),
+          memberLevel: z.string().optional(),
+          creditsOp: z.enum(["lt", "gt", "eq"]).optional(),
+          creditsValue: z.number().optional(),
+          totalSpentOp: z.enum(["lt", "gt", "eq"]).optional(),
+          totalSpentValue: z.number().optional(),
+          totalOrdersOp: z.enum(["lt", "gt", "eq"]).optional(),
+          totalOrdersValue: z.number().optional(),
+          lastPurchaseFrom: z.date().optional(),
+          lastPurchaseTo: z.date().optional(),
+          lastPurchaseAmountOp: z.enum(["lt", "gt", "eq"]).optional(),
+          lastPurchaseAmountValue: z.number().optional(),
+          lastShipmentFrom: z.date().optional(),
+          lastShipmentTo: z.date().optional(),
+          lifecycles: z.array(z.string()).optional(),
+          blacklisted: z.string().optional(),
+          lineUid: z.string().optional(),
+          sfShippedFrom: z.date().optional(),
+          sfShippedTo: z.date().optional(),
+        }).optional(),
         memberLevel: z.string().optional(),
         blacklisted: z.string().optional(),
         credits: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const { ids, ...updates } = input;
+        const { ids, filters, ...updates } = input;
+        // Resolve target IDs
+        let targetIds: number[];
+        if (filters) {
+          targetIds = await getCustomerIdsByFilters(filters);
+          if (targetIds.length === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "沒有符合篩選條件的客戶" });
+          }
+          if (targetIds.length > 5000) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `符合條件的客戶數量 (${targetIds.length}) 超過安全上限 5,000 筆，請縮小篩選範圍` });
+          }
+        } else if (ids && ids.length > 0) {
+          targetIds = ids;
+        } else {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請提供 ids 或 filters" });
+        }
         // Filter out undefined fields
         const validUpdates: Record<string, string> = {};
         if (updates.memberLevel !== undefined) validUpdates.memberLevel = updates.memberLevel;
@@ -346,16 +431,16 @@ export const appRouter = router({
         if (Object.keys(validUpdates).length === 0) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "請至少選擇一個要更新的欄位" });
         }
-        const result = await batchUpdateCustomers(ids, validUpdates);
+        const result = await batchUpdateCustomers(targetIds, validUpdates);
         const fieldNames: Record<string, string> = { memberLevel: '會員等級', blacklisted: '黑名單', credits: '購物金' };
         const updatedFieldsDesc = Object.keys(validUpdates).map(k => `${fieldNames[k] || k}: ${validUpdates[k]}`).join(', ');
         await logAudit({
           userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
           action: "batch_update_customers", category: "客戶管理",
-          description: `批次更新 ${ids.length} 筆客戶資料（${updatedFieldsDesc}）`,
-          details: { count: ids.length, ids, updates: validUpdates },
+          description: `批次更新 ${targetIds.length} 筆客戶資料（${updatedFieldsDesc}）${filters ? '（全選模式）' : ''}`,
+          details: { count: targetIds.length, mode: filters ? 'selectAll' : 'manual', ids: targetIds.slice(0, 100), updates: validUpdates },
         });
-        return result;
+        return { ...result, updatedCount: targetIds.length };
       }),
 
     detail: protectedProcedure
@@ -458,19 +543,48 @@ export const appRouter = router({
       }),
 
     batchDelete: protectedProcedure
-      .input(z.object({ ids: z.array(z.number()).min(1) }))
+      .input(z.object({
+        ids: z.array(z.number()).optional(),
+        filters: z.object({
+          searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "deliveryNumber"]).optional(),
+          searchValue: z.string().optional(),
+          orderSource: z.string().optional(),
+          paymentMethod: z.string().optional(),
+          shippingMethod: z.string().optional(),
+          shippingAddress: z.string().optional(),
+          shippedFrom: z.date().optional(),
+          shippedTo: z.date().optional(),
+          logisticsStatus: z.string().optional(),
+          shippingStatus: z.string().optional(),
+          orderStatusText: z.string().optional(),
+        }).optional(),
+      }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
         }
-        const result = await batchDeleteOrders(input.ids);
+        let targetIds: number[];
+        if (input.filters) {
+          targetIds = await getOrderIdsByFilters(input.filters);
+          if (targetIds.length === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "沒有符合篩選條件的訂單" });
+          }
+          if (targetIds.length > 5000) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `符合條件的訂單數量 (${targetIds.length}) 超過安全上限 5,000 筆，請縮小篩選範圍` });
+          }
+        } else if (input.ids && input.ids.length > 0) {
+          targetIds = input.ids;
+        } else {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請提供 ids 或 filters" });
+        }
+        const result = await batchDeleteOrders(targetIds);
         await logAudit({
           userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
           action: "delete_orders", category: "資料刪除",
-          description: `批次刪除 ${input.ids.length} 筆訂單資料`,
-          details: { count: input.ids.length, ids: input.ids },
+          description: `批次刪除 ${targetIds.length} 筆訂單資料${input.filters ? '（全選模式）' : ''}`,
+          details: { count: targetIds.length, mode: input.filters ? 'selectAll' : 'manual', ids: targetIds.slice(0, 100) },
         });
-        return result;
+        return { ...result, deletedCount: targetIds.length };
       }),
   }),
 

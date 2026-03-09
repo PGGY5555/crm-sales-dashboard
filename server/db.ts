@@ -1098,6 +1098,12 @@ export async function getCustomerManagementExport(filters: CustomerManagementFil
   return result.items;
 }
 
+/** Get all customer IDs matching filters (for batch operations) */
+export async function getCustomerIdsByFilters(filters: CustomerManagementFilters): Promise<number[]> {
+  const result = await getCustomerManagement({ ...filters, page: 0, limit: 100000 });
+  return result.items.map((c: any) => c.id);
+}
+
 /** Get distinct member levels for filter dropdown */
 export async function getDistinctMemberLevels(): Promise<string[]> {
   const db = await getDb();
@@ -1282,6 +1288,12 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
 export async function getOrderManagementExport(filters: OrderManagementFilters = {}) {
   const result = await getOrderManagement({ ...filters, page: 0, limit: 100000 });
   return result.items;
+}
+
+/** Get all order IDs matching filters (for batch operations) */
+export async function getOrderIdsByFilters(filters: OrderManagementFilters): Promise<number[]> {
+  const result = await getOrderManagement({ ...filters, page: 0, limit: 100000 });
+  return result.items.map((o: any) => o.id);
 }
 
 /** Get distinct values for order filter dropdowns */

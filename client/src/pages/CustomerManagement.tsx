@@ -83,6 +83,7 @@ export default function CustomerManagement() {
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectAllMode, setSelectAllMode] = useState(false);
 
   const { data: memberLevels } = trpc.customerMgmt.memberLevels.useQuery();
 
@@ -94,8 +95,9 @@ export default function CustomerManagement() {
 
   const batchUpdateMutation = trpc.customerMgmt.batchUpdate.useMutation({
     onSuccess: (result) => {
-      toast.success(`已更新 ${result.updated} 筆客戶資料`);
+      toast.success(`已更新 ${(result as any).updatedCount ?? (result as any).updated ?? 0} 筆客戶資料`);
       setSelectedIds(new Set());
+      setSelectAllMode(false);
       setBatchMemberLevel("");
       setBatchBlacklisted("");
       setBatchCredits("");
@@ -107,6 +109,34 @@ export default function CustomerManagement() {
     },
   });
 
+  // Build filters without page/limit for batch operations
+  const buildBatchFilters = useCallback(() => {
+    const f: Record<string, any> = {};
+    if (searchValue.trim()) {
+      f.searchField = searchField;
+      f.searchValue = searchValue.trim();
+    }
+    if (registeredFrom) f.registeredFrom = new Date(registeredFrom);
+    if (registeredTo) f.registeredTo = new Date(registeredTo + "T23:59:59");
+    if (birthdayMonth) f.birthdayMonth = parseInt(birthdayMonth);
+    if (tags.trim()) f.tags = tags.trim();
+    if (memberLevel) f.memberLevel = memberLevel;
+    if (creditsOp && creditsValue) { f.creditsOp = creditsOp; f.creditsValue = parseFloat(creditsValue); }
+    if (totalSpentOp && totalSpentValue) { f.totalSpentOp = totalSpentOp; f.totalSpentValue = parseFloat(totalSpentValue); }
+    if (totalOrdersOp && totalOrdersValue) { f.totalOrdersOp = totalOrdersOp; f.totalOrdersValue = parseInt(totalOrdersValue); }
+    if (lastPurchaseFrom) f.lastPurchaseFrom = new Date(lastPurchaseFrom);
+    if (lastPurchaseTo) f.lastPurchaseTo = new Date(lastPurchaseTo + "T23:59:59");
+    if (lastPurchaseAmountOp && lastPurchaseAmountValue) { f.lastPurchaseAmountOp = lastPurchaseAmountOp; f.lastPurchaseAmountValue = parseFloat(lastPurchaseAmountValue); }
+    if (lastShipmentFrom) f.lastShipmentFrom = new Date(lastShipmentFrom);
+    if (lastShipmentTo) f.lastShipmentTo = new Date(lastShipmentTo + "T23:59:59");
+    if (sfShippedFrom) f.sfShippedFrom = new Date(sfShippedFrom);
+    if (sfShippedTo) f.sfShippedTo = new Date(sfShippedTo + "T23:59:59");
+    if (selectedLifecycles.length > 0) f.lifecycles = selectedLifecycles;
+    if (blacklisted) f.blacklisted = blacklisted;
+    if (lineUid.trim()) f.lineUid = lineUid.trim();
+    return f;
+  }, [searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, sfShippedFrom, sfShippedTo, selectedLifecycles, blacklisted, lineUid]);
+
   const handleBatchUpdate = () => {
     const updates: Record<string, string> = {};
     if (batchMemberLevel) updates.memberLevel = batchMemberLevel;
@@ -116,15 +146,20 @@ export default function CustomerManagement() {
       toast.error("請至少選擇一個要更新的欄位");
       return;
     }
-    batchUpdateMutation.mutate({ ids: Array.from(selectedIds), ...updates });
+    if (selectAllMode) {
+      batchUpdateMutation.mutate({ filters: buildBatchFilters(), ...updates });
+    } else {
+      batchUpdateMutation.mutate({ ids: Array.from(selectedIds), ...updates });
+    }
   };
 
   const batchUpdateFieldCount = [batchMemberLevel, batchBlacklisted, batchCredits !== "" ? "1" : ""].filter(Boolean).length;
 
   const batchDeleteMutation = trpc.customerMgmt.batchDelete.useMutation({
     onSuccess: (result) => {
-      toast.success(`已刪除 ${result.deleted} 筆客戶資料及其關聯訂單`);
+      toast.success(`已刪除 ${(result as any).deletedCount ?? (result as any).deleted ?? 0} 筆客戶資料及其關聯訂單`);
       setSelectedIds(new Set());
+      setSelectAllMode(false);
       utils.customerMgmt.list.invalidate();
       utils.dashboard.kpi.invalidate();
       utils.dashboard.funnel.invalidate();
@@ -202,16 +237,36 @@ export default function CustomerManagement() {
   const someCurrentSelected = currentPageIds.some(id => selectedIds.has(id));
 
   const toggleSelectAll = () => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (allCurrentSelected) {
+    if (allCurrentSelected) {
+      // Deselect all on current page and exit selectAllMode
+      setSelectedIds(prev => {
+        const next = new Set(prev);
         currentPageIds.forEach(id => next.delete(id));
-      } else {
+        return next;
+      });
+      setSelectAllMode(false);
+    } else {
+      // Select all on current page
+      setSelectedIds(prev => {
+        const next = new Set(prev);
         currentPageIds.forEach(id => next.add(id));
-      }
-      return next;
-    });
+        return next;
+      });
+      setSelectAllMode(false);
+    }
   };
+
+  const handleSelectAllFiltered = () => {
+    setSelectAllMode(true);
+  };
+
+  const handleCancelSelectAll = () => {
+    setSelectAllMode(false);
+    setSelectedIds(new Set());
+  };
+
+  // The effective count for display: either selectAllMode total or manual selection count
+  const effectiveSelectedCount = selectAllMode ? (data?.total || 0) : selectedIds.size;
 
   const toggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -277,7 +332,11 @@ export default function CustomerManagement() {
   };
 
   const handleBatchDelete = () => {
-    batchDeleteMutation.mutate({ ids: Array.from(selectedIds) });
+    if (selectAllMode) {
+      batchDeleteMutation.mutate({ filters: buildBatchFilters() });
+    } else {
+      batchDeleteMutation.mutate({ ids: Array.from(selectedIds) });
+    }
   };
 
   const totalPages = Math.ceil((data?.total || 0) / 50);
@@ -317,15 +376,15 @@ export default function CustomerManagement() {
           <h1 className="text-2xl font-bold">客戶資料管理</h1>
           <p className="text-muted-foreground text-sm mt-1">
             共 {data?.total ?? 0} 筆客戶資料
-            {selectedIds.size > 0 && (
+            {(selectedIds.size > 0 || selectAllMode) && (
               <span className="ml-2 text-primary font-medium">
-                （已勾選 {selectedIds.size} 筆）
+                （已{selectAllMode ? '全' : '勾'}選 {effectiveSelectedCount} 筆）
               </span>
             )}
           </p>
         </div>
         <div className="flex gap-2">
-          {selectedIds.size > 0 && (
+          {(selectedIds.size > 0 || selectAllMode) && (
             <Button
               variant="outline"
               size="sm"
@@ -333,22 +392,23 @@ export default function CustomerManagement() {
               className="border-blue-300 text-blue-700 hover:bg-blue-50"
             >
               <RefreshCw className="w-4 h-4 mr-2" />
-              批次更新 {selectedIds.size} 筆
+              批次更新 {effectiveSelectedCount} 筆
             </Button>
           )}
-          {canDelete && selectedIds.size > 0 && (
+          {canDelete && (selectedIds.size > 0 || selectAllMode) && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" size="sm" disabled={batchDeleteMutation.isPending}>
                   <Trash2 className="w-4 h-4 mr-2" />
-                  {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${selectedIds.size} 筆`}
+                  {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${effectiveSelectedCount} 筆`}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>確認刪除客戶資料</AlertDialogTitle>
                   <AlertDialogDescription>
-                    即將刪除 <strong>{selectedIds.size}</strong> 筆客戶資料及其所有關聯訂單。
+                    即將刪除 <strong>{effectiveSelectedCount.toLocaleString()}</strong> 筆客戶資料及其所有關聯訂單。
+                    {selectAllMode && <span className="block mt-1 text-orange-600 font-medium">注意：您已選取全部符合篩選條件的客戶，不僅限當頁。</span>}
                     此操作無法復原，刪除後各項統計數據（KPI、銷售漏斗、客戶分析等）將自動更新。
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -415,13 +475,46 @@ export default function CustomerManagement() {
         </CardContent>
       </Card>
 
+      {/* Select All Banner */}
+      {allCurrentSelected && !selectAllMode && (data?.total || 0) > currentPageIds.length && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-blue-800">
+            已選取當頁 <strong>{currentPageIds.length}</strong> 筆。
+          </p>
+          <Button
+            variant="link"
+            size="sm"
+            className="text-blue-700 font-medium p-0 h-auto"
+            onClick={handleSelectAllFiltered}
+          >
+            選取全部符合篩選條件的 {(data?.total || 0).toLocaleString()} 筆
+          </Button>
+        </div>
+      )}
+      {selectAllMode && (
+        <div className="bg-blue-100 border border-blue-300 rounded-lg px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-blue-900 font-medium">
+            已選取全部符合篩選條件的 <strong>{(data?.total || 0).toLocaleString()}</strong> 筆客戶。
+            {(data?.total || 0) > 5000 && <span className="text-orange-600 ml-2">（批次操作上限 5,000 筆）</span>}
+          </p>
+          <Button
+            variant="link"
+            size="sm"
+            className="text-blue-700 p-0 h-auto"
+            onClick={handleCancelSelectAll}
+          >
+            取消全選
+          </Button>
+        </div>
+      )}
+
       {/* Batch Update Toolbar */}
-      {showBatchUpdate && selectedIds.size > 0 && (
+      {showBatchUpdate && (selectedIds.size > 0 || selectAllMode) && (
         <Card className="border-blue-200 bg-blue-50/50">
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center gap-2 mb-3">
               <RefreshCw className="w-4 h-4 text-blue-600" />
-              <span className="text-sm font-medium text-blue-800">批次更新 - 已勾選 {selectedIds.size} 筆客戶</span>
+              <span className="text-sm font-medium text-blue-800">批次更新 - 已{selectAllMode ? '全' : '勾'}選 {effectiveSelectedCount.toLocaleString()} 筆客戶</span>
               <span className="text-xs text-blue-600">（只有有填寫的欄位才會更新）</span>
             </div>
             <div className="flex flex-wrap gap-4 items-end">
@@ -475,7 +568,8 @@ export default function CustomerManagement() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>確認批次更新</AlertDialogTitle>
                       <AlertDialogDescription className="space-y-2">
-                        <p>即將更新 <strong>{selectedIds.size}</strong> 筆客戶資料的以下欄位：</p>
+                        <p>即將更新 <strong>{effectiveSelectedCount.toLocaleString()}</strong> 筆客戶資料的以下欄位：</p>
+                        {selectAllMode && <p className="text-xs text-orange-600 font-medium">注意：您已選取全部符合篩選條件的客戶，不僅限當頁。</p>}
                         <ul className="list-disc list-inside text-sm">
                           {batchMemberLevel && <li>會員等級 → {batchMemberLevel}</li>}
                           {batchBlacklisted && <li>黑名單 → {batchBlacklisted}</li>}

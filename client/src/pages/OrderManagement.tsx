@@ -66,13 +66,15 @@ export default function OrderManagement() {
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectAllMode, setSelectAllMode] = useState(false);
 
   const { data: filterOptions } = trpc.orderMgmt.filterOptions.useQuery();
 
   const batchDeleteMutation = trpc.orderMgmt.batchDelete.useMutation({
     onSuccess: (result) => {
-      toast.success(`已刪除 ${result.deleted} 筆訂單資料`);
+      toast.success(`已刪除 ${(result as any).deletedCount ?? (result as any).deleted ?? 0} 筆訂單資料`);
       setSelectedIds(new Set());
+      setSelectAllMode(false);
       utils.orderMgmt.list.invalidate();
       utils.dashboard.kpi.invalidate();
       utils.dashboard.funnel.invalidate();
@@ -128,16 +130,52 @@ export default function OrderManagement() {
   const someCurrentSelected = currentPageIds.some(id => selectedIds.has(id));
 
   const toggleSelectAll = () => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (allCurrentSelected) {
+    if (allCurrentSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
         currentPageIds.forEach(id => next.delete(id));
-      } else {
+        return next;
+      });
+      setSelectAllMode(false);
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
         currentPageIds.forEach(id => next.add(id));
-      }
-      return next;
-    });
+        return next;
+      });
+      setSelectAllMode(false);
+    }
   };
+
+  const handleSelectAllFiltered = () => {
+    setSelectAllMode(true);
+  };
+
+  const handleCancelSelectAll = () => {
+    setSelectAllMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const effectiveSelectedCount = selectAllMode ? (data?.total || 0) : selectedIds.size;
+
+  // Build filters without page/limit for batch operations
+  const buildBatchFilters = useCallback(() => {
+    const f: Record<string, any> = {};
+    if (searchValue.trim()) {
+      f.searchField = searchField;
+      f.searchValue = searchValue.trim();
+    }
+    if (orderSource) f.orderSource = orderSource;
+    if (paymentMethod) f.paymentMethod = paymentMethod;
+    if (shippingMethod) f.shippingMethod = shippingMethod;
+    if (shippingAddress.trim()) f.shippingAddress = shippingAddress.trim();
+    if (shippedFrom) f.shippedFrom = new Date(shippedFrom);
+    if (shippedTo) f.shippedTo = new Date(shippedTo + "T23:59:59");
+    if (logisticsStatus) f.logisticsStatus = logisticsStatus;
+    if (shippingStatus) f.shippingStatus = shippingStatus;
+    if (orderStatusText) f.orderStatusText = orderStatusText;
+    return f;
+  }, [searchField, searchValue, orderSource, paymentMethod, shippingMethod, shippingAddress, shippedFrom, shippedTo, logisticsStatus, shippingStatus, orderStatusText]);
 
   const toggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -202,7 +240,11 @@ export default function OrderManagement() {
   };
 
   const handleBatchDelete = () => {
-    batchDeleteMutation.mutate({ ids: Array.from(selectedIds) });
+    if (selectAllMode) {
+      batchDeleteMutation.mutate({ filters: buildBatchFilters() });
+    } else {
+      batchDeleteMutation.mutate({ ids: Array.from(selectedIds) });
+    }
   };
 
   const totalPages = Math.ceil((data?.total || 0) / 50);
@@ -227,27 +269,28 @@ export default function OrderManagement() {
           <h1 className="text-2xl font-bold">訂單資料管理</h1>
           <p className="text-muted-foreground text-sm mt-1">
             共 {data?.total ?? 0} 筆訂單資料
-            {selectedIds.size > 0 && (
+            {(selectedIds.size > 0 || selectAllMode) && (
               <span className="ml-2 text-primary font-medium">
-                （已勾選 {selectedIds.size} 筆）
+                （已{selectAllMode ? '全' : '勾'}選 {effectiveSelectedCount} 筆）
               </span>
             )}
           </p>
         </div>
         <div className="flex gap-2">
-          {canDelete && selectedIds.size > 0 && (
+          {canDelete && (selectedIds.size > 0 || selectAllMode) && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" size="sm" disabled={batchDeleteMutation.isPending}>
                   <Trash2 className="w-4 h-4 mr-2" />
-                  {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${selectedIds.size} 筆`}
+                  {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${effectiveSelectedCount} 筆`}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>確認刪除訂單資料</AlertDialogTitle>
                   <AlertDialogDescription>
-                    即將刪除 <strong>{selectedIds.size}</strong> 筆訂單資料及其訂單明細。
+                    即將刪除 <strong>{effectiveSelectedCount.toLocaleString()}</strong> 筆訂單資料及其訂單明細。
+                    {selectAllMode && <span className="block mt-1 text-orange-600 font-medium">注意：您已選取全部符合篩選條件的訂單，不僅限當頁。</span>}
                     此操作無法復原，刪除後各項統計數據（KPI、銷售漏斗、銷售趨勢等）將自動更新。
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -449,6 +492,39 @@ export default function OrderManagement() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Select All Banner */}
+      {allCurrentSelected && !selectAllMode && (data?.total || 0) > currentPageIds.length && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-blue-800">
+            已選取當頁 <strong>{currentPageIds.length}</strong> 筆。
+          </p>
+          <Button
+            variant="link"
+            size="sm"
+            className="text-blue-700 font-medium p-0 h-auto"
+            onClick={handleSelectAllFiltered}
+          >
+            選取全部符合篩選條件的 {(data?.total || 0).toLocaleString()} 筆
+          </Button>
+        </div>
+      )}
+      {selectAllMode && (
+        <div className="bg-blue-100 border border-blue-300 rounded-lg px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-blue-900 font-medium">
+            已選取全部符合篩選條件的 <strong>{(data?.total || 0).toLocaleString()}</strong> 筆訂單。
+            {(data?.total || 0) > 5000 && <span className="text-orange-600 ml-2">（批次操作上限 5,000 筆）</span>}
+          </p>
+          <Button
+            variant="link"
+            size="sm"
+            className="text-blue-700 p-0 h-auto"
+            onClick={handleCancelSelectAll}
+          >
+            取消全選
+          </Button>
+        </div>
       )}
 
       {/* Results Table */}
