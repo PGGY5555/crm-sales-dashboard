@@ -106,6 +106,10 @@ export const orders = mysqlTable("orders", {
   deliveryNumber: varchar("deliveryNumber", { length: 128 }),
   /** 物流狀態 (from logistics Excel) */
   logisticsStatus: varchar("logisticsStatus", { length: 128 }),
+  /** 出貨狀態 (from order Excel) */
+  shippingStatus: varchar("shippingStatus", { length: 128 }),
+  /** 訂單狀態文字 (from order Excel) */
+  orderStatusText: varchar("orderStatusText", { length: 128 }),
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

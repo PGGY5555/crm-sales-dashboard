@@ -1123,6 +1123,8 @@ export interface OrderManagementFilters {
   shippedFrom?: Date;
   shippedTo?: Date;
   logisticsStatus?: string;
+  shippingStatus?: string;
+  orderStatusText?: string;
   // Pagination
   page?: number;
   limit?: number;
@@ -1157,6 +1159,8 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
   if (filters.shippedFrom) conditions.push(gte(orders.shippedAt, filters.shippedFrom));
   if (filters.shippedTo) conditions.push(lte(orders.shippedAt, filters.shippedTo));
   if (filters.logisticsStatus) conditions.push(eq(orders.logisticsStatus, filters.logisticsStatus));
+  if (filters.shippingStatus) conditions.push(eq(orders.shippingStatus, filters.shippingStatus));
+  if (filters.orderStatusText) conditions.push(eq(orders.orderStatusText, filters.orderStatusText));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters.page ?? 0;
@@ -1193,6 +1197,8 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
       shipmentNumber: orders.shipmentNumber,
       deliveryNumber: orders.deliveryNumber,
       logisticsStatus: orders.logisticsStatus,
+      shippingStatus: orders.shippingStatus,
+      orderStatusText: orders.orderStatusText,
       customerLineUid: customers.lineUid,
       customerBlacklisted: customers.blacklisted,
     })
@@ -1209,7 +1215,7 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
 
   // Aggregate stats for filtered results (only when filters are active)
   let aggregateStats = null;
-  const hasActiveFilters = !!(filters.orderSource || filters.paymentMethod || filters.shippingMethod || filters.shippingAddress || filters.shippedFrom || filters.shippedTo || filters.logisticsStatus || (filters.searchValue && filters.searchField));
+  const hasActiveFilters = !!(filters.orderSource || filters.paymentMethod || filters.shippingMethod || filters.shippingAddress || filters.shippedFrom || filters.shippedTo || filters.logisticsStatus || filters.shippingStatus || filters.orderStatusText || (filters.searchValue && filters.searchField));
   if (hasActiveFilters) {
     try {
       // Combined: total amount + count in single query
@@ -1280,22 +1286,22 @@ export async function getOrderManagementExport(filters: OrderManagementFilters =
 /** Get distinct values for order filter dropdowns */
 export async function getOrderFilterOptions() {
   const db = await getDb();
-  if (!db) return { sources: [], payments: [], shippings: [] };
+  if (!db) return { sources: [], payments: [], shippings: [], orderStatuses: [], shippingStatuses: [] };
 
-  const [sources] = await Promise.all([
+  const [sources, payments, shippings, orderStatuses, shippingStatuses] = await Promise.all([
     db.select({ val: orders.orderSource }).from(orders).where(isNotNull(orders.orderSource)).groupBy(orders.orderSource),
-  ]);
-  const [payments] = await Promise.all([
     db.select({ val: orders.paymentMethod }).from(orders).where(isNotNull(orders.paymentMethod)).groupBy(orders.paymentMethod),
-  ]);
-  const [shippings] = await Promise.all([
     db.select({ val: orders.shippingMethod }).from(orders).where(isNotNull(orders.shippingMethod)).groupBy(orders.shippingMethod),
+    db.select({ val: orders.orderStatusText }).from(orders).where(isNotNull(orders.orderStatusText)).groupBy(orders.orderStatusText),
+    db.select({ val: orders.shippingStatus }).from(orders).where(isNotNull(orders.shippingStatus)).groupBy(orders.shippingStatus),
   ]);
 
   return {
     sources: sources.map(r => r.val).filter((v): v is string => !!v),
     payments: payments.map(r => r.val).filter((v): v is string => !!v),
     shippings: shippings.map(r => r.val).filter((v): v is string => !!v),
+    orderStatuses: orderStatuses.map(r => r.val).filter((v): v is string => !!v),
+    shippingStatuses: shippingStatuses.map(r => r.val).filter((v): v is string => !!v),
   };
 }
 

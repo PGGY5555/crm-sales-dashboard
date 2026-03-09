@@ -57,6 +57,8 @@ export default function OrderManagement() {
   const [shippedFrom, setShippedFrom] = useState("");
   const [shippedTo, setShippedTo] = useState("");
   const [logisticsStatus, setLogisticsStatus] = useState("");
+  const [shippingStatus, setShippingStatus] = useState("");
+  const [orderStatusText, setOrderStatusText] = useState("");
 
   const [page, setPage] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
@@ -97,8 +99,10 @@ export default function OrderManagement() {
     if (shippedFrom) filters.shippedFrom = new Date(shippedFrom);
     if (shippedTo) filters.shippedTo = new Date(shippedTo + "T23:59:59");
     if (logisticsStatus) filters.logisticsStatus = logisticsStatus;
+    if (shippingStatus) filters.shippingStatus = shippingStatus;
+    if (orderStatusText) filters.orderStatusText = orderStatusText;
     return filters;
-  }, [page, searchField, searchValue, orderSource, paymentMethod, shippingMethod, shippingAddress, shippedFrom, shippedTo, logisticsStatus]);
+  }, [page, searchField, searchValue, orderSource, paymentMethod, shippingMethod, shippingAddress, shippedFrom, shippedTo, logisticsStatus, shippingStatus, orderStatusText]);
 
   const queryFilters = useMemo(() => buildFilters(), [buildFilters]);
 
@@ -113,6 +117,8 @@ export default function OrderManagement() {
     setShippedFrom("");
     setShippedTo("");
     setLogisticsStatus("");
+    setShippingStatus("");
+    setOrderStatusText("");
     setPage(0);
   };
 
@@ -176,6 +182,8 @@ export default function OrderManagement() {
       "出貨單號碼": (o as any).shipmentNumber || "",
       "配送編號": (o as any).deliveryNumber || "",
       "物流狀態": (o as any).logisticsStatus || "",
+      "出貨狀態(匯入)": (o as any).shippingStatus || "",
+      "訂單狀態": (o as any).orderStatusText || "",
       "LINE UID": (o as any).customerLineUid || "",
       "黑名單": (o as any).customerBlacklisted || "",
     }));
@@ -201,7 +209,7 @@ export default function OrderManagement() {
   };
 
   const activeFilterCount = [
-    orderSource, paymentMethod, shippingMethod, shippingAddress.trim(), shippedFrom, shippedTo, logisticsStatus,
+    orderSource, paymentMethod, shippingMethod, shippingAddress.trim(), shippedFrom, shippedTo, logisticsStatus, shippingStatus, orderStatusText,
   ].filter(Boolean).length;
 
   return (
@@ -361,6 +369,28 @@ export default function OrderManagement() {
                 </Select>
               </div>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">訂單狀態</label>
+                <Select value={orderStatusText} onValueChange={v => { setOrderStatusText(v === "_clear" ? "" : v); setPage(0); }}>
+                  <SelectTrigger><SelectValue placeholder="選擇訂單狀態" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_clear">全部</SelectItem>
+                    {(filterOptions?.orderStatuses || []).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">出貨狀態</label>
+                <Select value={shippingStatus} onValueChange={v => { setShippingStatus(v === "_clear" ? "" : v); setPage(0); }}>
+                  <SelectTrigger><SelectValue placeholder="選擇出貨狀態" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_clear">全部</SelectItem>
+                    {(filterOptions?.shippingStatuses || []).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -445,16 +475,17 @@ export default function OrderManagement() {
                   <TableHead className="min-w-[110px]">出貨單號碼</TableHead>
                   <TableHead className="min-w-[100px]">配送編號</TableHead>
                   <TableHead className="min-w-[80px]">物流狀態</TableHead>
+                  <TableHead className="min-w-[80px]">出貨狀態</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={16} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
+                    <TableCell colSpan={17} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
                   </TableRow>
                 ) : !data?.items?.length ? (
                   <TableRow>
-                    <TableCell colSpan={16} className="text-center py-8 text-muted-foreground">無符合條件的訂單資料</TableCell>
+                    <TableCell colSpan={17} className="text-center py-8 text-muted-foreground">無符合條件的訂單資料</TableCell>
                   </TableRow>
                 ) : (
                   data.items.map((o) => {
@@ -495,6 +526,7 @@ export default function OrderManagement() {
                         <TableCell className="text-sm font-mono">{(o as any).shipmentNumber || "-"}</TableCell>
                         <TableCell className="text-sm font-mono">{(o as any).deliveryNumber || "-"}</TableCell>
                         <TableCell className="text-sm">{(o as any).logisticsStatus || "-"}</TableCell>
+                        <TableCell className="text-sm">{(o as any).shippingStatus || "-"}</TableCell>
                       </TableRow>
                     );
                   })

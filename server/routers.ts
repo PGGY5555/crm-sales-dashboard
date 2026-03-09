@@ -390,6 +390,8 @@ export const appRouter = router({
         shippedFrom: z.date().optional(),
         shippedTo: z.date().optional(),
         logisticsStatus: z.string().optional(),
+        shippingStatus: z.string().optional(),
+        orderStatusText: z.string().optional(),
         page: z.number().default(0),
         limit: z.number().default(50),
       }).optional())
@@ -408,6 +410,8 @@ export const appRouter = router({
         shippedFrom: z.date().optional(),
         shippedTo: z.date().optional(),
         logisticsStatus: z.string().optional(),
+        shippingStatus: z.string().optional(),
+        orderStatusText: z.string().optional(),
       }).optional())
       .query(async ({ input }) => {
         return getOrderManagementExport(input ?? {});

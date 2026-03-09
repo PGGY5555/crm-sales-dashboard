@@ -79,6 +79,7 @@ interface OrderRow {
   "訂單來源"?: string;
   "收貨地址"?: string;
   "出貨單號碼"?: string;
+  "訂單狀態"?: string;
 }
 
 interface ProductRow {
@@ -590,6 +591,8 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
           const shippingMethod = firstRow["配送方式"]?.trim() || null;
           const shippingAddress = firstRow["收貨地址"] ? String(firstRow["收貨地址"]).trim() : null;
           const shipmentNumber = firstRow["出貨單號碼"] ? String(firstRow["出貨單號碼"]).trim() : null;
+          const shippingStatus = firstRow["出貨狀態"]?.trim() || null;
+          const orderStatusText = firstRow["訂單狀態"]?.trim() || firstRow["訂單處理狀態"]?.trim() || null;
 
           await db.insert(orders).values({
             externalId: orderNum,
@@ -598,7 +601,7 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
             customerEmail: custEmail || null,
             customerPhone: custPhone || null,
             orderStatus,
-            progress: firstRow["出貨狀態"]?.trim() || null,
+            progress: shippingStatus,
             total: String(total),
             shipmentFee: String(shipmentFee),
             salesRep: null,
@@ -614,11 +617,13 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
             shippingMethod,
             shippingAddress,
             shipmentNumber,
+            shippingStatus,
+            orderStatusText,
             rawData: firstRow,
           }).onDuplicateKeyUpdate({
             set: {
               orderStatus,
-              progress: firstRow["出貨狀態"]?.trim() || null,
+              progress: shippingStatus,
               total: String(total),
               shipmentFee: String(shipmentFee),
               isShipped: shipped,
@@ -631,6 +636,8 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
               shippingMethod,
               shippingAddress,
               shipmentNumber,
+              shippingStatus,
+              orderStatusText,
               rawData: firstRow,
             },
           });

@@ -211,6 +211,8 @@ export async function batchImportOrders(batch: any[]): Promise<{ successRows: nu
         shippingAddress: firstRow["收貨地址"]?.trim?.() || null,
         orderSource: firstRow["訂單來源"]?.trim?.() || null,
         shipmentNumber: firstRow["出貨單號碼"]?.trim?.() || (typeof firstRow["出貨單號碼"] === "number" ? String(firstRow["出貨單號碼"]) : null),
+        shippingStatus: firstRow["出貨狀態"]?.trim?.() || null,
+        orderStatusText: firstRow["訂單狀態"]?.trim?.() || firstRow["訂單處理狀態"]?.trim?.() || null,
         rawData: firstRow,
       }).onDuplicateKeyUpdate({
         set: {
@@ -218,6 +220,8 @@ export async function batchImportOrders(batch: any[]): Promise<{ successRows: nu
           orderDate, shippedAt, total: String(totalAmount),
           orderStatus: statusNum, isShipped: shipped,
           shipmentNumber: firstRow["出貨單號碼"]?.trim?.() || (typeof firstRow["出貨單號碼"] === "number" ? String(firstRow["出貨單號碼"]) : null),
+          shippingStatus: firstRow["出貨狀態"]?.trim?.() || null,
+          orderStatusText: firstRow["訂單狀態"]?.trim?.() || firstRow["訂單處理狀態"]?.trim?.() || null,
           rawData: firstRow,
         },
       });
