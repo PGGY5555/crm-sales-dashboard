@@ -1670,3 +1670,43 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
     transitions,
   };
 }
+
+/** Batch update customers by IDs - update memberLevel, blacklisted, credits */
+export async function batchUpdateCustomers(
+  ids: number[],
+  updates: { memberLevel?: string; blacklisted?: string; credits?: string }
+): Promise<{ updated: number }> {
+  const db = await getDb();
+  if (!db || ids.length === 0) return { updated: 0 };
+
+  // Build SET clause dynamically based on provided fields
+  const setClauses: any[] = [];
+  if (updates.memberLevel !== undefined) {
+    setClauses.push(sql`memberLevel = ${updates.memberLevel}`);
+  }
+  if (updates.blacklisted !== undefined) {
+    setClauses.push(sql`blacklisted = ${updates.blacklisted}`);
+  }
+  if (updates.credits !== undefined) {
+    setClauses.push(sql`credits = ${updates.credits}`);
+  }
+
+  if (setClauses.length === 0) return { updated: 0 };
+
+  const setClause = sql.join(setClauses, sql`, `);
+
+  // Process in batches of 500
+  const BATCH_SIZE = 500;
+  let totalUpdated = 0;
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
+    await db.execute(sql`
+      UPDATE customers 
+      SET ${setClause}
+      WHERE id IN (${sql.join(batch.map(id => sql`${id}`), sql`, `)})
+    `);
+    totalUpdated += batch.length;
+  }
+
+  return { updated: totalUpdated };
+}

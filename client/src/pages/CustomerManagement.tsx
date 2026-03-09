@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, ExternalLink } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, ExternalLink, RefreshCw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -85,6 +85,41 @@ export default function CustomerManagement() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const { data: memberLevels } = trpc.customerMgmt.memberLevels.useQuery();
+
+  // Batch update state
+  const [batchMemberLevel, setBatchMemberLevel] = useState<string>("");
+  const [batchBlacklisted, setBatchBlacklisted] = useState<string>("");
+  const [batchCredits, setBatchCredits] = useState<string>("");
+  const [showBatchUpdate, setShowBatchUpdate] = useState(false);
+
+  const batchUpdateMutation = trpc.customerMgmt.batchUpdate.useMutation({
+    onSuccess: (result) => {
+      toast.success(`已更新 ${result.updated} 筆客戶資料`);
+      setSelectedIds(new Set());
+      setBatchMemberLevel("");
+      setBatchBlacklisted("");
+      setBatchCredits("");
+      setShowBatchUpdate(false);
+      utils.customerMgmt.list.invalidate();
+    },
+    onError: (err) => {
+      toast.error(`更新失敗: ${err.message}`);
+    },
+  });
+
+  const handleBatchUpdate = () => {
+    const updates: Record<string, string> = {};
+    if (batchMemberLevel) updates.memberLevel = batchMemberLevel;
+    if (batchBlacklisted) updates.blacklisted = batchBlacklisted;
+    if (batchCredits !== "") updates.credits = batchCredits;
+    if (Object.keys(updates).length === 0) {
+      toast.error("請至少選擇一個要更新的欄位");
+      return;
+    }
+    batchUpdateMutation.mutate({ ids: Array.from(selectedIds), ...updates });
+  };
+
+  const batchUpdateFieldCount = [batchMemberLevel, batchBlacklisted, batchCredits !== "" ? "1" : ""].filter(Boolean).length;
 
   const batchDeleteMutation = trpc.customerMgmt.batchDelete.useMutation({
     onSuccess: (result) => {
@@ -292,6 +327,17 @@ export default function CustomerManagement() {
           </p>
         </div>
         <div className="flex gap-2">
+          {selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowBatchUpdate(!showBatchUpdate)}
+              className="border-blue-300 text-blue-700 hover:bg-blue-50"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              批次更新 {selectedIds.size} 筆
+            </Button>
+          )}
           {canDelete && selectedIds.size > 0 && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -370,6 +416,100 @@ export default function CustomerManagement() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Batch Update Toolbar */}
+      {showBatchUpdate && selectedIds.size > 0 && (
+        <Card className="border-blue-200 bg-blue-50/50">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <RefreshCw className="w-4 h-4 text-blue-600" />
+              <span className="text-sm font-medium text-blue-800">批次更新 - 已勾選 {selectedIds.size} 筆客戶</span>
+              <span className="text-xs text-blue-600">（只有有填寫的欄位才會更新）</span>
+            </div>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">會員等級</label>
+                <Select value={batchMemberLevel} onValueChange={setBatchMemberLevel}>
+                  <SelectTrigger className="w-[160px] bg-white">
+                    <SelectValue placeholder="選擇會員等級" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(memberLevels || []).map((ml: string) => (
+                      <SelectItem key={ml} value={ml}>{ml}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">黑名單</label>
+                <Select value={batchBlacklisted} onValueChange={setBatchBlacklisted}>
+                  <SelectTrigger className="w-[120px] bg-white">
+                    <SelectValue placeholder="選擇" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="是">是</SelectItem>
+                    <SelectItem value="否">否</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">購物金（覆蓋原值）</label>
+                <Input
+                  type="number"
+                  placeholder="輸入金額"
+                  value={batchCredits}
+                  onChange={e => setBatchCredits(e.target.value)}
+                  className="w-[140px] bg-white"
+                />
+              </div>
+              <div className="flex gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      disabled={batchUpdateMutation.isPending || batchUpdateFieldCount === 0}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {batchUpdateMutation.isPending ? "更新中..." : "執行更新"}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>確認批次更新</AlertDialogTitle>
+                      <AlertDialogDescription className="space-y-2">
+                        <p>即將更新 <strong>{selectedIds.size}</strong> 筆客戶資料的以下欄位：</p>
+                        <ul className="list-disc list-inside text-sm">
+                          {batchMemberLevel && <li>會員等級 → {batchMemberLevel}</li>}
+                          {batchBlacklisted && <li>黑名單 → {batchBlacklisted}</li>}
+                          {batchCredits !== "" && <li>購物金 → {batchCredits}</li>}
+                        </ul>
+                        <p className="text-xs text-muted-foreground mt-2">此操作將立即生效，請確認無誤。</p>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>取消</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleBatchUpdate} className="bg-blue-600 hover:bg-blue-700">
+                        確認更新
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setBatchMemberLevel("");
+                    setBatchBlacklisted("");
+                    setBatchCredits("");
+                  }}
+                >
+                  清除
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Y-axis: Advanced Filters */}
       {showFilters && (
@@ -583,16 +723,14 @@ export default function CustomerManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {canDelete && (
-                    <TableHead className="w-[40px]">
-                      <Checkbox
-                        checked={allCurrentSelected}
-                        onCheckedChange={toggleSelectAll}
-                        aria-label="全選"
-                        className={someCurrentSelected && !allCurrentSelected ? "opacity-50" : ""}
-                      />
-                    </TableHead>
-                  )}
+                  <TableHead className="w-[40px]">
+                    <Checkbox
+                      checked={allCurrentSelected}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="全選"
+                      className={someCurrentSelected && !allCurrentSelected ? "opacity-50" : ""}
+                    />
+                  </TableHead>
                   <TableHead className="min-w-[100px]">註冊日期</TableHead>
                   <TableHead className="min-w-[100px]">顧客姓名</TableHead>
                   <TableHead className="min-w-[120px]">電子信箱</TableHead>
@@ -620,15 +758,13 @@ export default function CustomerManagement() {
                 ) : (
                   data.items.map((c) => (
                     <TableRow key={c.id} className={selectedIds.has(c.id) ? "bg-primary/5" : ""}>
-                      {canDelete && (
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedIds.has(c.id)}
-                            onCheckedChange={() => toggleSelect(c.id)}
-                            aria-label={`選取 ${c.name}`}
-                          />
-                        </TableCell>
-                      )}
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(c.id)}
+                          onCheckedChange={() => toggleSelect(c.id)}
+                          aria-label={`選取 ${c.name}`}
+                        />
+                      </TableCell>
                       <TableCell className="text-sm">{c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
                       <TableCell className="font-medium">
                         <Link href={`/customer/${c.id}`} className="text-primary hover:underline inline-flex items-center gap-1">

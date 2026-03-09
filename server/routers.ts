@@ -23,6 +23,7 @@ import {
   getOrderManagementExport,
   getOrderFilterOptions,
   batchDeleteCustomers,
+  batchUpdateCustomers,
   batchDeleteOrders,
   getCustomerDetail,
   getOrderDetail,
@@ -324,6 +325,35 @@ export const appRouter = router({
           action: "delete_customers", category: "資料刪除",
           description: `批次刪除 ${input.ids.length} 筆客戶資料`,
           details: { count: input.ids.length, ids: input.ids },
+        });
+        return result;
+      }),
+
+    batchUpdate: protectedProcedure
+      .input(z.object({
+        ids: z.array(z.number()).min(1).max(500),
+        memberLevel: z.string().optional(),
+        blacklisted: z.string().optional(),
+        credits: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { ids, ...updates } = input;
+        // Filter out undefined fields
+        const validUpdates: Record<string, string> = {};
+        if (updates.memberLevel !== undefined) validUpdates.memberLevel = updates.memberLevel;
+        if (updates.blacklisted !== undefined) validUpdates.blacklisted = updates.blacklisted;
+        if (updates.credits !== undefined) validUpdates.credits = updates.credits;
+        if (Object.keys(validUpdates).length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請至少選擇一個要更新的欄位" });
+        }
+        const result = await batchUpdateCustomers(ids, validUpdates);
+        const fieldNames: Record<string, string> = { memberLevel: '會員等級', blacklisted: '黑名單', credits: '購物金' };
+        const updatedFieldsDesc = Object.keys(validUpdates).map(k => `${fieldNames[k] || k}: ${validUpdates[k]}`).join(', ');
+        await logAudit({
+          userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
+          action: "batch_update_customers", category: "客戶管理",
+          description: `批次更新 ${ids.length} 筆客戶資料（${updatedFieldsDesc}）`,
+          details: { count: ids.length, ids, updates: validUpdates },
         });
         return result;
       }),
