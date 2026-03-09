@@ -1,0 +1,70 @@
+{
+  "query": "SELECT id, JSON_EXTRACT(rawData, '$.\"出貨狀態\"') as shipping_status, JSON_EXTRACT(rawData, '$.\"訂單狀態\"') as order_status, JSON_EXTRACT(rawData, '$.\"訂單處理狀態\"') as order_process_status FROM orders WHERE rawData IS NOT NULL LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT id, JSON_EXTRACT(rawData, '$.\"出貨狀態\"') as shipping_status, JSON_EXTRACT(rawData, '$.\"訂單狀態\"') as order_status, JSON_EXTRACT(rawData, '$.\"訂單處理狀態\"') as order_process_status FROM orders WHERE rawData IS NOT NULL LIMIT 10;",
+  "rows": [
+    {
+      "id": "150001",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150002",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150003",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150004",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150005",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150006",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150007",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150008",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150009",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    },
+    {
+      "id": "150010",
+      "shipping_status": "\"已取貨\"",
+      "order_status": "NULL",
+      "order_process_status": "\"已完成\""
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tshipping_status\torder_status\torder_process_status\n150001\t\"已取貨\"\tNULL\t\"已完成\"\n150002\t\"已取貨\"\tNULL\t\"已完成\"\n150003\t\"已取貨\"\tNULL\t\"已完成\"\n150004\t\"已取貨\"\tNULL\t\"已完成\"\n150005\t\"已取貨\"\tNULL\t\"已完成\"\n150006\t\"已取貨\"\tNULL\t\"已完成\"\n150007\t\"已取貨\"\tNULL\t\"已完成\"\n150008\t\"已取貨\"\tNULL\t\"已完成\"\n150009\t\"已取貨\"\tNULL\t\"已完成\"\n150010\t\"已取貨\"\tNULL\t\"已完成\"\n",
+  "stderr": "",
+  "execution_time_ms": 1611
+}

@@ -178,12 +178,11 @@ export default function OrderManagement() {
       "收貨地址": o.shippingAddress || "",
       "訂單金額": o.total || "0",
       "出貨日期": o.shippedAt ? new Date(o.shippedAt).toLocaleDateString("zh-TW") : "",
-      "出貨狀態": o.shippedAt ? "已出貨" : "未出貨",
+      "出貨狀態": (o as any).shippingStatus || "",
       "出貨單號碼": (o as any).shipmentNumber || "",
       "配送編號": (o as any).deliveryNumber || "",
       "物流狀態": (o as any).logisticsStatus || "",
-      "出貨狀態(匯入)": (o as any).shippingStatus || "",
-      "訂單狀態": (o as any).orderStatusText || "",
+      "訂單處理狀態": (o as any).orderStatusText || "",
       "LINE UID": (o as any).customerLineUid || "",
       "黑名單": (o as any).customerBlacklisted || "",
     }));
@@ -489,9 +488,6 @@ export default function OrderManagement() {
                   </TableRow>
                 ) : (
                   data.items.map((o) => {
-                    const st = o.shippedAt
-                      ? { text: "已出貨", cls: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" }
-                      : { text: "未出貨", cls: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" };
                     return (
                       <TableRow key={o.id} className={selectedIds.has(o.id) ? "bg-primary/5" : ""}>
                         {canDelete && (
@@ -519,9 +515,7 @@ export default function OrderManagement() {
                         <TableCell className="text-sm">{o.paymentMethod || "-"}</TableCell>
                         <TableCell className="text-sm">{o.shippingMethod || "-"}</TableCell>
                         <TableCell className="text-right text-sm font-medium">${parseFloat(String(o.total || "0")).toLocaleString()}</TableCell>
-                        <TableCell>
-                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${st.cls}`}>{st.text}</span>
-                        </TableCell>
+                        <TableCell className="text-sm">{(o as any).orderStatusText || "-"}</TableCell>
                         <TableCell className="text-sm">{o.shippedAt ? new Date(o.shippedAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
                         <TableCell className="text-sm font-mono">{(o as any).shipmentNumber || "-"}</TableCell>
                         <TableCell className="text-sm font-mono">{(o as any).deliveryNumber || "-"}</TableCell>
