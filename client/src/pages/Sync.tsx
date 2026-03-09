@@ -85,8 +85,10 @@ export default function Sync() {
     logistics: null,
   });
 
+  const canAccessSync = hasPermission("data_sync");
+
   const { data: credentials, isLoading: credsLoading, refetch: refetchCreds } =
-    trpc.settings.getCredentials.useQuery(undefined, { enabled: isAdmin });
+    trpc.settings.getCredentials.useQuery(undefined, { enabled: isAdmin || canApiCredentials });
 
   const { data: syncStatus, isLoading: statusLoading, refetch: refetchStatus } =
     trpc.dashboard.syncStatus.useQuery();
@@ -490,7 +492,7 @@ export default function Sync() {
     }
   };
 
-  if (!isAdmin) {
+  if (!canAccessSync && !isAdmin) {
     return (
       <div className="space-y-6">
         <div>
@@ -504,7 +506,7 @@ export default function Sync() {
             <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-40" />
             <p className="text-lg font-medium">權限不足</p>
             <p className="text-muted-foreground mt-2">
-              僅管理員可以管理 API 憑證和執行數據同步。
+              您沒有數據同步的存取權限，請聯繫管理員開啟。
             </p>
           </CardContent>
         </Card>
@@ -666,7 +668,7 @@ export default function Sync() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">數據同步</h1>
         <p className="text-muted-foreground mt-1">
-          管理 CRM API 憑證、同步數據或從 Excel 匯入（僅管理員）
+          管理 CRM API 憑證、同步數據或從 Excel 匯入
         </p>
       </div>
 
@@ -1052,7 +1054,7 @@ export default function Sync() {
           <div className="prose prose-sm max-w-none text-muted-foreground">
             <ul className="space-y-1.5 list-disc pl-4">
               <li>API 憑證使用 <strong className="text-foreground">AES-256-CBC</strong> 加密後儲存於資料庫</li>
-              <li>僅<strong className="text-foreground">管理員</strong>可以查看（遮罩顯示）、修改憑證、執行同步和匯入 Excel</li>
+              <li>擁有相應權限的使用者可以查看憑證、執行同步和匯入 Excel</li>
               <li>加密金鑰衍生自伺服器端環境變數，不會暴露在前端</li>
               <li>所有流量經由 <strong className="text-foreground">Cloudflare WAF</strong> 防護</li>
               <li>Excel 匯入的檔案會暫存於加密雲端儲存空間，處理完成後可安全存取</li>

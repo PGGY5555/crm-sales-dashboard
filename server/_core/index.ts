@@ -29,8 +29,9 @@ import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { COOKIE_NAME } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
-import { getUserByOpenId, logAudit } from "../db";
+import { getUserByOpenId, logAudit, checkUserPermission } from "../db";
 import { getDb } from "../db";
+import type { PermissionKey } from "../../shared/permissions";
 import { importJobs, syncLogs } from "../../drizzle/schema";
 import { eq, sql } from "drizzle-orm";
 
@@ -53,8 +54,8 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-// Helper: verify admin session from request
-async function verifyAdminSession(req: express.Request): Promise<{ dbUser: any } | { error: string; status: number }> {
+// Helper: verify authenticated session with optional permission check
+async function verifyAuthSession(req: express.Request, requiredPermission?: PermissionKey): Promise<{ dbUser: any } | { error: string; status: number }> {
   const cookies = parseCookieHeader(req.headers.cookie || "");
   const sessionCookie = cookies[COOKIE_NAME];
   if (!sessionCookie) return { error: "未登入", status: 401 };
@@ -68,10 +69,18 @@ async function verifyAdminSession(req: express.Request): Promise<{ dbUser: any }
   if (!session) return { error: "登入已過期", status: 401 };
 
   const dbUser = await getUserByOpenId(session.openId);
-  if (!dbUser || dbUser.role !== "admin") return { error: "僅管理員可執行此操作", status: 403 };
+  if (!dbUser) return { error: "使用者不存在", status: 403 };
+
+  if (requiredPermission) {
+    const hasPermission = await checkUserPermission(dbUser.id, dbUser.role, requiredPermission);
+    if (!hasPermission) return { error: "您沒有執行此操作的權限", status: 403 };
+  }
 
   return { dbUser };
 }
+
+// Backward-compatible alias
+const verifyAdminSession = verifyAuthSession;
 
 async function startServer() {
   const app = express();
@@ -85,7 +94,16 @@ async function startServer() {
   // ===== STEP 1: Upload Excel file to S3 and create import job =====
   app.post("/api/upload/excel", upload.single("file"), async (req, res) => {
     try {
-      const auth = await verifyAdminSession(req);
+      // Determine required permission based on file type
+      const fileType = req.body?.type as string;
+      const permissionMap: Record<string, PermissionKey> = {
+        customers: "excel_import_customers",
+        orders: "excel_import_orders",
+        products: "excel_import_products",
+        logistics: "excel_import_logistics",
+      };
+      const requiredPerm = permissionMap[fileType] || "data_sync";
+      const auth = await verifyAuthSession(req, requiredPerm);
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
@@ -96,7 +114,6 @@ async function startServer() {
         res.status(400).json({ error: "請上傳檔案" });
         return;
       }
-      const fileType = req.body?.type as string;
       if (!fileType || !["customers", "orders", "products", "logistics"].includes(fileType)) {
         res.status(400).json({ error: "請指定檔案類型 (customers, orders, products, logistics)" });
         return;
@@ -164,7 +181,7 @@ async function startServer() {
   // Phase 2 (subsequent calls, has jsonUrl): Download JSON → bulk INSERT chunk → return
   app.post("/api/import/process", async (req, res) => {
     try {
-      const auth = await verifyAdminSession(req);
+      const auth = await verifyAuthSession(req, "data_sync");
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
@@ -294,7 +311,9 @@ async function startServer() {
   // ===== NEW: Create import job (no file upload, just metadata) =====
   app.post("/api/import/create-job", async (req, res) => {
     try {
-      const auth = await verifyAdminSession(req);
+      const ft = req.body?.fileType as string;
+      const pm: Record<string, PermissionKey> = { customers: "excel_import_customers", orders: "excel_import_orders", products: "excel_import_products", logistics: "excel_import_logistics" };
+      const auth = await verifyAuthSession(req, pm[ft] || "data_sync");
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
@@ -347,7 +366,7 @@ async function startServer() {
   // ===== NEW: Batch import (receives JSON rows from frontend) =====
   app.post("/api/import/batch", async (req, res) => {
     try {
-      const auth = await verifyAdminSession(req);
+      const auth = await verifyAuthSession(req, "data_sync");
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
@@ -405,7 +424,7 @@ async function startServer() {
   // ===== NEW: Complete import job =====
   app.post("/api/import/complete", async (req, res) => {
     try {
-      const auth = await verifyAdminSession(req);
+      const auth = await verifyAuthSession(req, "data_sync");
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;

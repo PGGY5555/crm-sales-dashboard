@@ -129,19 +129,19 @@ describe("dashboard routes require auth", () => {
   });
 });
 
-describe("settings routes require admin", () => {
-  it("settings.getCredentials throws FORBIDDEN for non-admin user", async () => {
+describe("settings routes require permission", () => {
+  it("settings.getCredentials throws FORBIDDEN for user without api_credentials permission", async () => {
     const { ctx } = createAuthContext(); // role = "user"
     const caller = appRouter.createCaller(ctx);
-    await expect(caller.settings.getCredentials()).rejects.toThrow(/\u50c5\u7ba1\u7406\u54e1/);
+    await expect(caller.settings.getCredentials()).rejects.toThrow(/權限/);
   });
 
-  it("settings.saveCredentials throws FORBIDDEN for non-admin user", async () => {
+  it("settings.saveCredentials throws FORBIDDEN for user without api_credentials permission", async () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
     await expect(
       caller.settings.saveCredentials({ apiToken: "test", appName: "test" })
-    ).rejects.toThrow(/\u50c5\u7ba1\u7406\u54e1/);
+    ).rejects.toThrow(/權限/);
   });
 
   it("settings.getCredentials throws UNAUTHORIZED for unauthenticated user", async () => {
@@ -151,11 +151,15 @@ describe("settings routes require admin", () => {
   });
 });
 
-describe("sync routes require admin", () => {
-  it("sync.trigger throws FORBIDDEN for non-admin user", async () => {
-    const { ctx } = createAuthContext(); // role = "user"
+describe("sync routes require permission", () => {
+  it("sync.trigger allows user with default api_sync_execute permission (returns no-creds error)", async () => {
+    const { ctx } = createAuthContext(); // role = "user", default perms include api_sync_execute=true
     const caller = appRouter.createCaller(ctx);
-    await expect(caller.sync.trigger()).rejects.toThrow(/\u50c5\u7ba1\u7406\u54e1/);
+    // User has api_sync_execute permission by default, so it won't throw FORBIDDEN
+    // Instead it returns a no-credentials error since no API creds are configured
+    const result = await caller.sync.trigger();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/憑證/);
   });
 
   it("sync.trigger throws UNAUTHORIZED for unauthenticated user", async () => {

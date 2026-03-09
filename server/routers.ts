@@ -168,12 +168,12 @@ export const appRouter = router({
     }),
   }),
 
-  /** Admin-only settings for API credentials */
+  /** Settings for API credentials */
   settings: router({
-    /** Get masked credential status (admin only) */
+    /** Get masked credential status */
     getCredentials: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+      if (!(await checkUserPermission(ctx.user.id, ctx.user.role, "api_credentials"))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "您沒有 API 憑證管理權限" });
       }
       const [apiToken, appName] = await Promise.all([
         getMaskedSetting("shopnex_api_token"),
@@ -182,15 +182,15 @@ export const appRouter = router({
       return { apiToken, appName };
     }),
 
-    /** Save API credentials (admin only) */
+    /** Save API credentials */
     saveCredentials: protectedProcedure
       .input(z.object({
         apiToken: z.string().min(1, "API Token 不可為空"),
         appName: z.string().min(1, "App Name 不可為空"),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可存取此功能" });
+        if (!(await checkUserPermission(ctx.user.id, ctx.user.role, "api_credentials"))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "您沒有 API 憑證管理權限" });
         }
         await saveSetting("shopnex_api_token", input.apiToken, ctx.user.id);
         await saveSetting("shopnex_app_name", input.appName, ctx.user.id);
@@ -205,11 +205,11 @@ export const appRouter = router({
 
   /** Sync data from Shopnex CRM */
   sync: router({
-    /** Trigger sync using stored credentials (admin only) */
+    /** Trigger sync using stored credentials */
     trigger: protectedProcedure
       .mutation(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可執行同步" });
+        if (!(await checkUserPermission(ctx.user.id, ctx.user.role, "api_sync_execute"))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "您沒有執行同步的權限" });
         }
         const creds = await getCrmCredentials();
         if (!creds) {
@@ -225,14 +225,14 @@ export const appRouter = router({
         return result;
       }),
 
-    /** Clear all imported data (admin only) */
+    /** Clear all imported data */
     clearData: protectedProcedure
       .input(z.object({
         targets: z.array(z.enum(["customers", "orders", "products", "all"])).min(1),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可清除資料" });
+        if (!(await checkUserPermission(ctx.user.id, ctx.user.role, "excel_clear_data"))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "您沒有清除資料的權限" });
         }
         const result = await clearAllData(input.targets);
         await logAudit({
