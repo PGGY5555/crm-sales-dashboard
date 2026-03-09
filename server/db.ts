@@ -1033,6 +1033,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
         FROM orders
         WHERE customerId IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})
           AND orderStatus != -1 AND isShipped = 1 AND shippedAt IS NOT NULL
+          AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
         GROUP BY customerId
       `);
       for (const row of statsRows) {
@@ -1352,21 +1353,31 @@ export async function batchDeleteOrders(ids: number[]): Promise<{ deleted: numbe
     .where(isNotNull(orders.customerId));
 
   // For each customer, update totalSpent, totalOrders, lastPurchaseDate, lastPurchaseAmount, lastShipmentDate
+  // Only count orders with orderStatusText='已完成' and shippingStatus!='已退貨'
   for (const { customerId } of affectedCustomerIds) {
     if (!customerId) continue;
+    const validCondition = and(
+      eq(orders.customerId, customerId),
+      sql`(${orders.orderStatusText} = '已完成' OR ${orders.orderStatusText} IS NULL)`,
+      sql`(${orders.shippingStatus} IS NULL OR ${orders.shippingStatus} != '已退貨')`
+    );
     const stats = await db.select({
       totalSpent: sql<number>`COALESCE(SUM(${orders.total}), 0)`,
       totalOrders: sql<number>`COUNT(*)`,
       lastPurchaseDate: sql<number | null>`MAX(${orders.orderDate})`,
       lastPurchaseAmount: sql<number | null>`NULL`,
       lastShipmentDate: sql<number | null>`MAX(${orders.shippedAt})`,
-    }).from(orders).where(eq(orders.customerId, customerId));
+    }).from(orders).where(validCondition);
 
     if (stats[0]) {
-      // Get last order amount
+      // Get last order amount (also only from valid orders)
       const lastOrder = await db.select({ total: orders.total })
         .from(orders)
-        .where(eq(orders.customerId, customerId))
+        .where(and(
+          eq(orders.customerId, customerId),
+          sql`(${orders.orderStatusText} = '已完成' OR ${orders.orderStatusText} IS NULL)`,
+          sql`(${orders.shippingStatus} IS NULL OR ${orders.shippingStatus} != '已退貨')`
+        ))
         .orderBy(desc(orders.orderDate))
         .limit(1);
 
@@ -1588,6 +1599,8 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
       AND o.isShipped = 1
       AND o.shippedAt IS NOT NULL
       AND o.customerId IS NOT NULL
+      AND (o.orderStatusText = '已完成' OR o.orderStatusText IS NULL)
+      AND (o.shippingStatus IS NULL OR o.shippingStatus != '已退貨')
     GROUP BY o.customerId
   `);
 

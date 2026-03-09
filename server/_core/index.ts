@@ -467,7 +467,7 @@ async function startServer() {
                   MAX(orderDate) as lastPurchaseDate,
                   MAX(shippedAt) as lastShipmentAt
                 FROM orders
-                WHERE customerId IS NOT NULL AND orderStatus != -1
+                WHERE customerId IS NOT NULL AND orderStatus != -1 AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
                 GROUP BY customerId
               ) o ON c.id = o.customerId
               SET 
@@ -486,10 +486,10 @@ async function startServer() {
                 INNER JOIN (
                   SELECT customerId, MAX(orderDate) as maxDate
                   FROM orders
-                  WHERE customerId IS NOT NULL AND orderStatus != -1
+                  WHERE customerId IS NOT NULL AND orderStatus != -1 AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
                   GROUP BY customerId
                 ) o2 ON o1.customerId = o2.customerId AND o1.orderDate = o2.maxDate
-                WHERE o1.orderStatus != -1
+                WHERE o1.orderStatus != -1 AND (o1.orderStatusText = '已完成' OR o1.orderStatusText IS NULL) AND (o1.shippingStatus IS NULL OR o1.shippingStatus != '已退貨')
               ) latest ON c.id = latest.customerId
               SET c.lastPurchaseAmount = latest.lastAmount
             `));
@@ -519,7 +519,7 @@ async function startServer() {
                     customerId,
                     DATEDIFF(orderDate, LAG(orderDate) OVER (PARTITION BY customerId ORDER BY orderDate)) as day_diff
                   FROM orders
-                  WHERE customerId IS NOT NULL AND orderStatus != -1
+                  WHERE customerId IS NOT NULL AND orderStatus != -1 AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
                 ) diffs
                 WHERE day_diff IS NOT NULL AND day_diff > 0
                 GROUP BY customerId

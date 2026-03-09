@@ -850,7 +850,9 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
         .where(sql`${orders.id} IN (${sql.join(orderIds.map((id: number) => sql`${id}`), sql`, `)})`);
     }
 
-    const validOrders = custOrders.filter(o => o.orderStatus !== -1);
+    // Only count orders with orderStatusText='已完成' and shippingStatus!='已退貨'
+    // Note: if orderStatusText is NULL (old data without status), still include; if explicitly set to non-已完成, exclude
+    const validOrders = custOrders.filter(o => o.orderStatus !== -1 && (o.orderStatusText === '已完成' || !o.orderStatusText) && o.shippingStatus !== '已退貨');
     const shippedOrders = validOrders.filter(o => o.isShipped && o.shippedAt);
 
     const totalOrders = validOrders.length;
@@ -862,6 +864,7 @@ async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<
       lastShipmentAt = dates[0];
     }
 
+    // Fallback: if no shipped orders, use orderDate from valid orders
     if (!lastShipmentAt && validOrders.length > 0) {
       const orderDates = validOrders
         .map((o: any) => o.orderDate)
