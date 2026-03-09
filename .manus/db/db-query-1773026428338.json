@@ -1,0 +1,34 @@
+{
+  "query": "SELECT u.id, u.name, u.role, JSON_EXTRACT(up.permissions, '$.data_sync') as data_sync, JSON_EXTRACT(up.permissions, '$.excel_import_customers') as excel_import_customers, JSON_EXTRACT(up.permissions, '$.api_sync_execute') as api_sync_execute FROM users u LEFT JOIN userPermissions up ON u.id = up.userId;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT u.id, u.name, u.role, JSON_EXTRACT(up.permissions, '$.data_sync') as data_sync, JSON_EXTRACT(up.permissions, '$.excel_import_customers') as excel_import_customers, JSON_EXTRACT(up.permissions, '$.api_sync_execute') as api_sync_execute FROM users u LEFT JOIN userPermissions up ON u.id = up.userId;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "統宣T.S.",
+      "role": "admin",
+      "data_sync": "NULL",
+      "excel_import_customers": "NULL",
+      "api_sync_execute": "NULL"
+    },
+    {
+      "id": "480012",
+      "name": "yuti wu",
+      "role": "user",
+      "data_sync": "true",
+      "excel_import_customers": "true",
+      "api_sync_execute": "true"
+    },
+    {
+      "id": "720629",
+      "name": "客服中心 美之選膠原",
+      "role": "user",
+      "data_sync": "true",
+      "excel_import_customers": "true",
+      "api_sync_execute": "true"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\trole\tdata_sync\texcel_import_customers\tapi_sync_execute\n1\t統宣T.S.\tadmin\tNULL\tNULL\tNULL\n480012\tyuti wu\tuser\ttrue\ttrue\ttrue\n720629\t客服中心 美之選膠原\tuser\ttrue\ttrue\ttrue\n",
+  "stderr": "",
+  "execution_time_ms": 1598
+}

@@ -1,0 +1,28 @@
+{
+  "query": "SELECT u.id, u.name, u.role, CAST(up.permissions AS CHAR) as perms FROM users u LEFT JOIN userPermissions up ON u.id = up.userId;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT u.id, u.name, u.role, CAST(up.permissions AS CHAR) as perms FROM users u LEFT JOIN userPermissions up ON u.id = up.userId;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "統宣T.S.",
+      "role": "admin",
+      "perms": "NULL"
+    },
+    {
+      "id": "480012",
+      "name": "yuti wu",
+      "role": "user",
+      "perms": "{\"ai_chat\": false, \"api_credentials\": true, \"api_sync_execute\": true, \"api_sync_status\": true, \"customer_analysis\": false, \"customer_mgmt\": true, \"customer_mgmt_delete\": false, \"customer_mgmt_export\": false, \"dashboard\": false, \"data_sync\": true, \"excel_clear_data\": false, \"excel_import_customers\": true, \"excel_import_logistics\": true, \"excel_import_orders\": true, \"excel_import_products\": true, \"funnel\": false, \"order_mgmt\": true, \"order_mgmt_delete\": false, \"order_mgmt_export\": false}"
+    },
+    {
+      "id": "720629",
+      "name": "客服中心 美之選膠原",
+      "role": "user",
+      "perms": "{\"ai_chat\": false, \"api_credentials\": true, \"api_sync_execute\": true, \"api_sync_status\": true, \"customer_analysis\": false, \"customer_mgmt\": true, \"customer_mgmt_delete\": true, \"customer_mgmt_export\": true, \"dashboard\": false, \"data_sync\": true, \"excel_clear_data\": false, \"excel_import_customers\": true, \"excel_import_logistics\": true, \"excel_import_orders\": true, \"excel_import_products\": true, \"funnel\": false, \"order_mgmt\": true, \"order_mgmt_delete\": true, \"order_mgmt_export\": true}"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\trole\tperms\n1\t統宣T.S.\tadmin\tNULL\n480012\tyuti wu\tuser\t{\"ai_chat\": false, \"api_credentials\": true, \"api_sync_execute\": true, \"api_sync_status\": true, \"customer_analysis\": false, \"customer_mgmt\": true, \"customer_mgmt_delete\": false, \"customer_mgmt_export\": false, \"dashboard\": false, \"data_sync\": true, \"excel_clear_data\": false, \"excel_import_customers\": true, \"excel_import_logistics\": true, \"excel_import_orders\": true, \"excel_import_products\": true, \"funnel\": false, \"order_mgmt\": true, \"order_mgmt_delete\": false, \"order_mgmt_export\": false}\n720629\t客服中心 美之選膠原\tuser\t{\"ai_chat\": false, \"api_credentials\": true, \"api_sync_execute\": true, \"api_sync_status\": true, \"customer_analysis\": false, \"customer_mgmt\": true, \"customer_mgmt_delete\": true, \"customer_mgmt_export\": true, \"dashboard\": false, \"data_sync\": true, \"excel_clear_data\": false, \"excel_import_customers\": true, \"excel_import_logistics\": true, \"excel_import_orders\": true, \"excel_import_products\": true, \"funnel\": false, \"order_mgmt\": true, \"order_mgmt_delete\": true, \"order_mgmt_export\": true}\n",
+  "stderr": "",
+  "execution_time_ms": 1612
+}

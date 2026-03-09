@@ -1,0 +1,28 @@
+{
+  "query": "SELECT id, name, email, role FROM users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT id, name, email, role FROM users;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "統宣T.S.",
+      "email": "smilebio@gmail.com",
+      "role": "admin"
+    },
+    {
+      "id": "480012",
+      "name": "yuti wu",
+      "email": "wuyuti545@gmail.com",
+      "role": "user"
+    },
+    {
+      "id": "720629",
+      "name": "客服中心 美之選膠原",
+      "email": "smilebio.s1@gmail.com",
+      "role": "user"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\n1\t統宣T.S.\tsmilebio@gmail.com\tadmin\n480012\tyuti wu\twuyuti545@gmail.com\tuser\n720629\t客服中心 美之選膠原\tsmilebio.s1@gmail.com\tuser\n",
+  "stderr": "",
+  "execution_time_ms": 1581
+}

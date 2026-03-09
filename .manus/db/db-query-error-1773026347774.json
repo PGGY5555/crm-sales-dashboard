@@ -1,0 +1,8 @@
+{
+  "query": "SELECT up.id, up.user_id, u.name, u.email, u.role, up.permissions FROM user_permissions up JOIN users u ON up.user_id = u.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT up.id, up.user_id, u.name, u.email, u.role, up.permissions FROM user_permissions up JOIN users u ON up.user_id = u.id;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'dn8ihetpknpmgxaqbwyu7x.user_permissions' doesn't exist"
+  ]
+}

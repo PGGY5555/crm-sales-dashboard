@@ -115,11 +115,22 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   },
 ];
 
-/** Default permissions for new users (all false) */
+/** Permission keys that are enabled by default for new users (role: user) */
+const DEFAULT_ENABLED: Set<PermissionKey> = new Set<PermissionKey>([
+  "data_sync",
+  "excel_import_customers",
+  "excel_import_orders",
+  "excel_import_products",
+  "excel_import_logistics",
+  "api_sync_execute",
+  "api_sync_status",
+]);
+
+/** Default permissions for new users */
 export function getDefaultPermissions(): Record<PermissionKey, boolean> {
   const perms: Record<string, boolean> = {};
   for (const key of PERMISSION_KEYS) {
-    perms[key] = false;
+    perms[key] = DEFAULT_ENABLED.has(key);
   }
   return perms as Record<PermissionKey, boolean>;
 }

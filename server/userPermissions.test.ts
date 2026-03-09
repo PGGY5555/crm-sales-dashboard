@@ -41,9 +41,37 @@ describe("Permission definitions", () => {
     }
   });
 
-  it("getDefaultPermissions should return all false", () => {
+  it("getDefaultPermissions should enable data_sync, excel imports, and api sync by default", () => {
     const defaults = getDefaultPermissions();
-    for (const key of PERMISSION_KEYS) {
+    // These should be enabled by default for regular users
+    const expectedEnabled: PermissionKey[] = [
+      "data_sync",
+      "excel_import_customers",
+      "excel_import_orders",
+      "excel_import_products",
+      "excel_import_logistics",
+      "api_sync_execute",
+      "api_sync_status",
+    ];
+    for (const key of expectedEnabled) {
+      expect(defaults[key]).toBe(true);
+    }
+    // These should remain disabled by default
+    const expectedDisabled: PermissionKey[] = [
+      "dashboard",
+      "funnel",
+      "customer_analysis",
+      "customer_mgmt",
+      "customer_mgmt_delete",
+      "customer_mgmt_export",
+      "order_mgmt",
+      "order_mgmt_delete",
+      "order_mgmt_export",
+      "ai_chat",
+      "excel_clear_data",
+      "api_credentials",
+    ];
+    for (const key of expectedDisabled) {
       expect(defaults[key]).toBe(false);
     }
   });

@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE userPermissions SET permissions = JSON_SET(permissions, '$.data_sync', CAST('true' AS JSON), '$.excel_import_customers', CAST('true' AS JSON), '$.excel_import_orders', CAST('true' AS JSON), '$.excel_import_products', CAST('true' AS JSON), '$.excel_import_logistics', CAST('true' AS JSON), '$.api_sync_execute', CAST('true' AS JSON), '$.api_sync_status', CAST('true' AS JSON));",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE userPermissions SET permissions = JSON_SET(permissions, '$.data_sync', CAST('true' AS JSON), '$.excel_import_customers', CAST('true' AS JSON), '$.excel_import_orders', CAST('true' AS JSON), '$.excel_import_products', CAST('true' AS JSON), '$.excel_import_logistics', CAST('true' AS JSON), '$.api_sync_execute', CAST('true' AS JSON), '$.api_sync_status', CAST('true' AS JSON));",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1621
+}

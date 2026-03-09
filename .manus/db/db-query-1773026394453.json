@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE userPermissions up JOIN users u ON up.userId = u.id SET up.permissions = JSON_SET(up.permissions, '$.data_sync', true, '$.excel_import_customers', true, '$.excel_import_orders', true, '$.excel_import_products', true, '$.excel_import_logistics', true, '$.api_sync_execute', true, '$.api_sync_status', true) WHERE u.role = 'user';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute UPDATE userPermissions up JOIN users u ON up.userId = u.id SET up.permissions = JSON_SET(up.permissions, '$.data_sync', true, '$.excel_import_customers', true, '$.excel_import_orders', true, '$.excel_import_products', true, '$.excel_import_logistics', true, '$.api_sync_execute', true, '$.api_sync_status', true) WHERE u.role = 'user';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1577
+}
