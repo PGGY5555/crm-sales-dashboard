@@ -233,15 +233,13 @@ export default function CustomerManagement() {
       }
       // Otherwise export all filtered results
       const filters = buildFilters();
-      delete filters.page;
-      delete filters.limit;
-      const items = await (window as any).__trpcClient?.customerMgmt.export.query(filters);
-      if (!items) {
-        exportToExcel(data?.items || []);
-        return;
-      }
-      exportToExcel(items);
-    } catch {
+      delete (filters as any).page;
+      delete (filters as any).limit;
+      const items = await utils.customerMgmt.export.fetch(filters as any);
+      exportToExcel(items || []);
+    } catch (err) {
+      console.error('Export failed:', err);
+      toast.error('匯出失敗，僅匯出當頁資料');
       exportToExcel(data?.items || []);
     } finally {
       setIsExporting(false);

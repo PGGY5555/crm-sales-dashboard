@@ -156,6 +156,15 @@ export default function OrderManagement() {
         exportToExcel(selectedItems);
         return;
       }
+      // Export all filtered results (no pagination)
+      const filters = buildFilters();
+      delete (filters as any).page;
+      delete (filters as any).limit;
+      const items = await utils.orderMgmt.export.fetch(filters as any);
+      exportToExcel(items || []);
+    } catch (err) {
+      console.error('Export failed:', err);
+      toast.error('匯出失敗，僅匯出當頁資料');
       exportToExcel(data?.items || []);
     } finally {
       setIsExporting(false);
