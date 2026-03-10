@@ -273,6 +273,8 @@ export const appRouter = router({
         lineUid: z.string().optional(),
         sfShippedFrom: z.date().optional(),
         sfShippedTo: z.date().optional(),
+        gender: z.string().optional(),
+        company: z.string().optional(),
         page: z.number().default(0),
         limit: z.number().default(50),
       }).optional())
@@ -306,6 +308,8 @@ export const appRouter = router({
         lineUid: z.string().optional(),
         sfShippedFrom: z.date().optional(),
         sfShippedTo: z.date().optional(),
+        gender: z.string().optional(),
+        company: z.string().optional(),
       }).optional())
       .query(async ({ input }) => {
         return getCustomerManagementExport(input ?? {});
@@ -343,12 +347,11 @@ export const appRouter = router({
           lineUid: z.string().optional(),
           sfShippedFrom: z.date().optional(),
           sfShippedTo: z.date().optional(),
+          gender: z.string().optional(),
+          company: z.string().optional(),
         }).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
-        }
         let targetIds: number[];
         if (input.filters) {
           targetIds = await getCustomerIdsByFilters(input.filters);
@@ -401,6 +404,8 @@ export const appRouter = router({
           lineUid: z.string().optional(),
           sfShippedFrom: z.date().optional(),
           sfShippedTo: z.date().optional(),
+          gender: z.string().optional(),
+          company: z.string().optional(),
         }).optional(),
         memberLevel: z.string().optional(),
         blacklisted: z.string().optional(),
@@ -472,6 +477,11 @@ export const appRouter = router({
         custom3: z.string().nullable().optional(),
         blacklisted: z.string().nullable().optional(),
         lineUid: z.string().nullable().optional(),
+        address: z.string().nullable().optional(),
+        gender: z.string().nullable().optional(),
+        mobileCarrier: z.string().nullable().optional(),
+        taxId: z.string().nullable().optional(),
+        company: z.string().nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Mail, Phone, Calendar, Tag, CreditCard, ShoppingCart, Package, User, MessageSquare, Shield, Hash, Pencil, Save, X } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Calendar, Tag, CreditCard, ShoppingCart, Package, User, MessageSquare, Shield, Hash, Pencil, Save, X, MapPin, Building2, FileText, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 
 export default function CustomerDetail() {
@@ -59,6 +59,11 @@ export default function CustomerDetail() {
         custom3: c.custom3 || "",
         blacklisted: c.blacklisted || "否",
         lineUid: c.lineUid || "",
+        address: c.address || "",
+        gender: c.gender || "",
+        mobileCarrier: c.mobileCarrier || "",
+        taxId: c.taxId || "",
+        company: c.company || "",
       });
     }
   }, [data?.customer]);
@@ -84,6 +89,11 @@ export default function CustomerDetail() {
       custom3: form.custom3 || null,
       blacklisted: form.blacklisted || "否",
       lineUid: form.lineUid || null,
+      address: form.address || null,
+      gender: form.gender || null,
+      mobileCarrier: form.mobileCarrier || null,
+      taxId: form.taxId || null,
+      company: form.company || null,
     });
   };
 
@@ -109,6 +119,11 @@ export default function CustomerDetail() {
         custom3: c.custom3 || "",
         blacklisted: c.blacklisted || "否",
         lineUid: c.lineUid || "",
+        address: c.address || "",
+        gender: c.gender || "",
+        mobileCarrier: c.mobileCarrier || "",
+        taxId: c.taxId || "",
+        company: c.company || "",
       });
     }
     setEditing(false);
@@ -306,6 +321,44 @@ export default function CustomerDetail() {
                   <EditableField label="收件人姓名" icon={User} fieldKey="recipientName" />
                   <EditableField label="收件人手機" icon={Phone} fieldKey="recipientPhone" />
                   <EditableField label="收件人信箱" icon={Mail} fieldKey="recipientEmail" />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-muted-foreground">其他資訊</h4>
+                <div className="space-y-2">
+                  <EditableField label="地址" icon={MapPin} fieldKey="address" />
+                  <div className="flex items-center gap-2 text-sm">
+                    <User className="w-4 h-4 text-muted-foreground shrink-0" />
+                    {editing ? (
+                      <div className="flex-1">
+                        <label className="text-xs text-muted-foreground">性別</label>
+                        <select
+                          value={form.gender || ""}
+                          onChange={e => updateField("gender", e.target.value)}
+                          className="w-full h-8 text-sm mt-0.5 border rounded px-2 bg-background"
+                        >
+                          <option value="">未設定</option>
+                          <option value="男">男</option>
+                          <option value="女">女</option>
+                          <option value="其他">其他</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <span>性別：{form.gender || "-"}</span>
+                    )}
+                  </div>
+                  <EditableField label="手機載具" icon={Smartphone} fieldKey="mobileCarrier" />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-muted-foreground">公司/統編資訊</h4>
+                <div className="space-y-2">
+                  <EditableField label="統一編號" icon={FileText} fieldKey="taxId" />
+                  <EditableField label="公司" icon={Building2} fieldKey="company" />
                 </div>
               </div>
             </div>

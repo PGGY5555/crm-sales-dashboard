@@ -900,6 +900,8 @@ export interface CustomerManagementFilters {
   lineUid?: string; // text search
   sfShippedFrom?: Date;
   sfShippedTo?: Date;
+  gender?: string; // 性別篩選
+  company?: string; // 公司名稱搜尋
   // Pagination
   page?: number;
   limit?: number;
@@ -1000,6 +1002,14 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
   if (filters.sfShippedFrom) conditions.push(gte(customers.sfShippedAt, filters.sfShippedFrom));
   if (filters.sfShippedTo) conditions.push(lte(customers.sfShippedAt, filters.sfShippedTo));
 
+  if (filters.gender) {
+    conditions.push(eq(customers.gender, filters.gender));
+  }
+
+  if (filters.company) {
+    conditions.push(like(customers.company, `%${filters.company}%`));
+  }
+
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters.page ?? 0;
   const limit = filters.limit ?? 50;
@@ -1055,7 +1065,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
 
   // Aggregate stats for filtered results (only when filters are active)
   let aggregateStats = null;
-  const hasActiveFilters = !!(filters.registeredFrom || filters.registeredTo || filters.birthdayMonth || filters.tags || filters.memberLevel || (filters.creditsOp && filters.creditsValue !== undefined) || (filters.totalSpentOp && filters.totalSpentValue !== undefined) || (filters.totalOrdersOp && filters.totalOrdersValue !== undefined) || filters.lastPurchaseFrom || filters.lastPurchaseTo || (filters.lastPurchaseAmountOp && filters.lastPurchaseAmountValue !== undefined) || filters.lastShipmentFrom || filters.lastShipmentTo || (filters.lifecycles && filters.lifecycles.length > 0) || filters.blacklisted || filters.lineUid || (filters.searchValue && filters.searchField));
+  const hasActiveFilters = !!(filters.registeredFrom || filters.registeredTo || filters.birthdayMonth || filters.tags || filters.memberLevel || (filters.creditsOp && filters.creditsValue !== undefined) || (filters.totalSpentOp && filters.totalSpentValue !== undefined) || (filters.totalOrdersOp && filters.totalOrdersValue !== undefined) || filters.lastPurchaseFrom || filters.lastPurchaseTo || (filters.lastPurchaseAmountOp && filters.lastPurchaseAmountValue !== undefined) || filters.lastShipmentFrom || filters.lastShipmentTo || (filters.lifecycles && filters.lifecycles.length > 0) || filters.blacklisted || filters.lineUid || filters.gender || filters.company || (filters.searchValue && filters.searchField));
   if (hasActiveFilters) {
     try {
       const [statsResult] = await db
@@ -1504,6 +1514,11 @@ export async function updateCustomer(customerId: number, data: {
   custom3?: string | null;
   blacklisted?: string | null;
   lineUid?: string | null;
+  address?: string | null;
+  gender?: string | null;
+  mobileCarrier?: string | null;
+  taxId?: string | null;
+  company?: string | null;
 }) {
   const db = await getDb();
   if (!db) return null;

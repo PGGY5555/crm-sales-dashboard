@@ -76,6 +76,8 @@ export default function CustomerManagement() {
   const [lineUid, setLineUid] = useState("");
   const [sfShippedFrom, setSfShippedFrom] = useState("");
   const [sfShippedTo, setSfShippedTo] = useState("");
+  const [gender, setGender] = useState("");
+  const [company, setCompany] = useState("");
 
   const [page, setPage] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
@@ -134,8 +136,10 @@ export default function CustomerManagement() {
     if (selectedLifecycles.length > 0) f.lifecycles = selectedLifecycles;
     if (blacklisted) f.blacklisted = blacklisted;
     if (lineUid.trim()) f.lineUid = lineUid.trim();
+    if (gender) f.gender = gender;
+    if (company.trim()) f.company = company.trim();
     return f;
-  }, [searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, sfShippedFrom, sfShippedTo, selectedLifecycles, blacklisted, lineUid]);
+  }, [searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, sfShippedFrom, sfShippedTo, selectedLifecycles, blacklisted, lineUid, gender, company]);
 
   const handleBatchUpdate = () => {
     const updates: Record<string, string> = {};
@@ -197,8 +201,10 @@ export default function CustomerManagement() {
     if (selectedLifecycles.length > 0) filters.lifecycles = selectedLifecycles;
     if (blacklisted) filters.blacklisted = blacklisted;
     if (lineUid.trim()) filters.lineUid = lineUid.trim();
+    if (gender) filters.gender = gender;
+    if (company.trim()) filters.company = company.trim();
     return filters;
-  }, [page, searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, sfShippedFrom, sfShippedTo, selectedLifecycles, blacklisted, lineUid]);
+  }, [page, searchField, searchValue, registeredFrom, registeredTo, birthdayMonth, tags, memberLevel, creditsOp, creditsValue, totalSpentOp, totalSpentValue, totalOrdersOp, totalOrdersValue, lastPurchaseFrom, lastPurchaseTo, lastPurchaseAmountOp, lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo, sfShippedFrom, sfShippedTo, selectedLifecycles, blacklisted, lineUid, gender, company]);
 
   const queryFilters = useMemo(() => buildFilters(), [buildFilters]);
 
@@ -228,6 +234,8 @@ export default function CustomerManagement() {
     setLineUid("");
     setSfShippedFrom("");
     setSfShippedTo("");
+    setGender("");
+    setCompany("");
     setPage(0);
   };
 
@@ -321,6 +329,11 @@ export default function CustomerManagement() {
       "收件人手機": c.recipientPhone || "",
       "收件人信箱": c.recipientEmail || "",
       "注冊日期": c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "",
+      "地址": c.address || "",
+      "性別": c.gender || "",
+      "手機載具": c.mobileCarrier || "",
+      "統一編號": c.taxId || "",
+      "公司": c.company || "",
       "顧客備註": c.notes || "",
       "黑名單": c.blacklisted || "否",
       "LINE UID": c.lineUid || "",
@@ -366,7 +379,7 @@ export default function CustomerManagement() {
     totalOrdersOp && totalOrdersValue, lastPurchaseFrom, lastPurchaseTo,
     lastPurchaseAmountOp && lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo,
     sfShippedFrom, sfShippedTo,
-    selectedLifecycles.length > 0, blacklisted, lineUid,
+    selectedLifecycles.length > 0, blacklisted, lineUid, gender, company,
   ].filter(Boolean).length;
 
   return (
@@ -686,6 +699,21 @@ export default function CustomerManagement() {
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">LINE UID</label>
                 <Input placeholder="輸入 LINE UID" value={lineUid} onChange={e => { setLineUid(e.target.value); setPage(0); }} className="text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">性別</label>
+                <Select value={gender} onValueChange={v => { setGender(v === "_clear" ? "" : v); setPage(0); }}>
+                  <SelectTrigger><SelectValue placeholder="全部" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_clear">全部</SelectItem>
+                    <SelectItem value="男">男</SelectItem>
+                    <SelectItem value="女">女</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">公司</label>
+                <Input placeholder="輸入公司名稱" value={company} onChange={e => { setCompany(e.target.value); setPage(0); }} className="text-sm" />
               </div>
             </div>
 
