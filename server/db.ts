@@ -1028,7 +1028,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
     .offset(page * limit);
 
   // Fetch interval order counts for tooltip display
-  let intervalStats: Map<number, { ordersIn6m: number; ordersIn6to12m: number }> = new Map();
+  let intervalStats: Map<number, { ordersIn6m: number; ordersIn6to12m: number; ltvOneYear: number }> = new Map();
   if (items.length > 0) {
     const now = new Date();
     const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
@@ -1039,7 +1039,8 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
       const statsRows: any[] = await db.execute(sql`
         SELECT customerId,
           SUM(CASE WHEN shippedAt >= ${fmt(sixMonthsAgo)} AND shippedAt <= ${fmt(now)} THEN 1 ELSE 0 END) AS ordersIn6m,
-          SUM(CASE WHEN shippedAt >= ${fmt(oneYearAgo)} AND shippedAt < ${fmt(sixMonthsAgo)} THEN 1 ELSE 0 END) AS ordersIn6to12m
+          SUM(CASE WHEN shippedAt >= ${fmt(oneYearAgo)} AND shippedAt < ${fmt(sixMonthsAgo)} THEN 1 ELSE 0 END) AS ordersIn6to12m,
+          COALESCE(SUM(CASE WHEN orderDate >= ${fmt(oneYearAgo)} THEN CAST(total AS DECIMAL(12,2)) ELSE 0 END), 0) AS ltvOneYear
         FROM orders
         WHERE customerId IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})
           AND orderStatus != -1 AND isShipped = 1 AND shippedAt IS NOT NULL
@@ -1050,6 +1051,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
         intervalStats.set(Number(row.customerId), {
           ordersIn6m: Number(row.ordersIn6m || 0),
           ordersIn6to12m: Number(row.ordersIn6to12m || 0),
+          ltvOneYear: parseFloat(String(row.ltvOneYear || 0)),
         });
       }
     } catch (e) {
@@ -1061,6 +1063,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
     ...c,
     ordersIn6m: intervalStats.get(c.id)?.ordersIn6m ?? 0,
     ordersIn6to12m: intervalStats.get(c.id)?.ordersIn6to12m ?? 0,
+    ltvOneYear: intervalStats.get(c.id)?.ltvOneYear ?? 0,
   }));
 
   // Aggregate stats for filtered results (only when filters are active)

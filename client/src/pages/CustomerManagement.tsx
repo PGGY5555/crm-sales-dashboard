@@ -330,8 +330,9 @@ export default function CustomerManagement() {
     const rows = items.map(c => {
       const email = (c.email || "").trim();
       const phone = formatPhoneTo886(c.phone || "");
-      // email,,,phone,,,,,,,,,country,,,,,,
-      return `${email},,,${phone},,,,,,,,,TW,,,,,,`;
+      const ltvValue = c.ltvOneYear ? String(Math.round(Number(c.ltvOneYear))) : "";
+      // email,,,phone,,,,,,,,,country,,,,,,value
+      return `${email},,,${phone},,,,,,,,,TW,,,,,,${ltvValue}`;
     });
     const csv = [header, ...rows].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });

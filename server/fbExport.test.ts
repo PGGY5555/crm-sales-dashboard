@@ -53,6 +53,22 @@ describe("FB Audience Export - Phone Format", () => {
 describe("FB Audience Export - CSV Format", () => {
   const HEADER = "email,email,email,phone,phone,phone,madid,fn,ln,zip,ct,st,country,dob,doby,gen,age,uid,value";
 
+  // Replicate the row generation logic from the frontend
+  const generateRow = (c: { email?: string; phone?: string; ltvOneYear?: number }) => {
+    const formatPhoneTo886 = (phone: string): string => {
+      if (!phone) return "";
+      const cleaned = phone.replace(/[^0-9]/g, "");
+      if (cleaned.startsWith("0") && cleaned.length === 10) return "886" + cleaned.slice(1);
+      if (cleaned.startsWith("886") && cleaned.length === 12) return cleaned;
+      if (cleaned.length === 9) return "886" + cleaned;
+      return cleaned;
+    };
+    const email = (c.email || "").trim();
+    const phone = formatPhoneTo886(c.phone || "");
+    const ltvValue = c.ltvOneYear ? String(Math.round(Number(c.ltvOneYear))) : "";
+    return `${email},,,${phone},,,,,,,,,TW,,,,,,${ltvValue}`;
+  };
+
   it("should have correct header with 19 columns", () => {
     const columns = HEADER.split(",");
     expect(columns.length).toBe(19);
@@ -62,37 +78,55 @@ describe("FB Audience Export - CSV Format", () => {
     expect(columns[18]).toBe("value");
   });
 
-  it("should generate correct row format", () => {
-    const email = "test@example.com";
-    const phone = "886935111222";
-    const row = `${email},,,${phone},,,,,,,,,TW,,,,,,`;
+  it("should generate correct row with LTV value", () => {
+    const row = generateRow({ email: "test@example.com", phone: "0935111222", ltvOneYear: 15680.5 });
     const columns = row.split(",");
     expect(columns.length).toBe(19);
     expect(columns[0]).toBe("test@example.com");
-    expect(columns[1]).toBe("");
-    expect(columns[2]).toBe("");
     expect(columns[3]).toBe("886935111222");
-    expect(columns[4]).toBe("");
-    expect(columns[5]).toBe("");
     expect(columns[12]).toBe("TW");
-    expect(columns[18]).toBe("");
+    expect(columns[18]).toBe("15681"); // rounded
   });
 
-  it("should handle empty email and phone", () => {
-    // The actual format from our code: `${email},,,${phone},,,,,,,,,TW,,,,,,`
-    const email = "";
-    const phone = "";
-    const codeRow = `${email},,,${phone},,,,,,,,,TW,,,,,,`;
-    expect(codeRow.split(",").length).toBe(19);
-    // First column is empty email, then 2 empty, then empty phone, then 8 empty, then TW, then 6 empty
-    expect(codeRow).toBe(",,,,,,,,,,,,TW,,,,,,");
+  it("should generate correct row with zero LTV", () => {
+    const row = generateRow({ email: "test@example.com", phone: "0935111222", ltvOneYear: 0 });
+    const columns = row.split(",");
+    expect(columns.length).toBe(19);
+    expect(columns[18]).toBe(""); // 0 treated as falsy, empty value
   });
 
-  it("should match example file format", () => {
-    // From the example: peggy5555@gmail.com,,,886935069866,,,,,,,,,TW,,,,,,
-    const email = "peggy5555@gmail.com";
-    const phone = "886935069866";
-    const row = `${email},,,${phone},,,,,,,,,TW,,,,,,`;
+  it("should generate correct row without LTV", () => {
+    const row = generateRow({ email: "test@example.com", phone: "0935111222" });
+    const columns = row.split(",");
+    expect(columns.length).toBe(19);
+    expect(columns[18]).toBe(""); // undefined → empty
+  });
+
+  it("should generate correct row with large LTV", () => {
+    const row = generateRow({ email: "vip@example.com", phone: "886912345678", ltvOneYear: 250000.99 });
+    const columns = row.split(",");
+    expect(columns[0]).toBe("vip@example.com");
+    expect(columns[3]).toBe("886912345678");
+    expect(columns[18]).toBe("250001"); // rounded up
+  });
+
+  it("should handle empty email and phone with LTV", () => {
+    const row = generateRow({ email: "", phone: "", ltvOneYear: 5000 });
+    const columns = row.split(",");
+    expect(columns.length).toBe(19);
+    expect(columns[0]).toBe("");
+    expect(columns[3]).toBe("");
+    expect(columns[12]).toBe("TW");
+    expect(columns[18]).toBe("5000");
+  });
+
+  it("should match example file format with LTV", () => {
+    const row = generateRow({ email: "peggy5555@gmail.com", phone: "886935069866", ltvOneYear: 12345 });
+    expect(row).toBe("peggy5555@gmail.com,,,886935069866,,,,,,,,,TW,,,,,,12345");
+  });
+
+  it("should match example file format without LTV", () => {
+    const row = generateRow({ email: "peggy5555@gmail.com", phone: "886935069866" });
     expect(row).toBe("peggy5555@gmail.com,,,886935069866,,,,,,,,,TW,,,,,,");
   });
 });
