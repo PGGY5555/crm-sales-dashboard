@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, ExternalLink, RefreshCw } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, ExternalLink, RefreshCw, Facebook } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -82,6 +82,7 @@ export default function CustomerManagement() {
   const [page, setPage] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingFB, setIsExportingFB] = useState(false);
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -309,6 +310,61 @@ export default function CustomerManagement() {
     }
   };
 
+  const formatPhoneTo886 = (phone: string): string => {
+    if (!phone) return "";
+    const cleaned = phone.replace(/[^0-9]/g, "");
+    if (cleaned.startsWith("0") && cleaned.length === 10) {
+      return "886" + cleaned.slice(1);
+    }
+    if (cleaned.startsWith("886") && cleaned.length === 12) {
+      return cleaned;
+    }
+    if (cleaned.length === 9) {
+      return "886" + cleaned;
+    }
+    return cleaned;
+  };
+
+  const exportFbAudience = (items: any[]) => {
+    const header = "email,email,email,phone,phone,phone,madid,fn,ln,zip,ct,st,country,dob,doby,gen,age,uid,value";
+    const rows = items.map(c => {
+      const email = (c.email || "").trim();
+      const phone = formatPhoneTo886(c.phone || "");
+      // email,,,phone,,,,,,,,,country,,,,,,
+      return `${email},,,${phone},,,,,,,,,TW,,,,,,`;
+    });
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `FB受眾_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFbExport = async () => {
+    setIsExportingFB(true);
+    try {
+      if (selectedIds.size > 0 && !selectAllMode) {
+        const selectedItems = (data?.items || []).filter(c => selectedIds.has(c.id));
+        exportFbAudience(selectedItems);
+        return;
+      }
+      const filters = buildFilters();
+      delete (filters as any).page;
+      delete (filters as any).limit;
+      const items = await utils.customerMgmt.export.fetch(filters as any);
+      exportFbAudience(items || []);
+    } catch (err) {
+      console.error('FB export failed:', err);
+      toast.error('FB受眾匯出失敗，僅匯出當頁資料');
+      exportFbAudience(data?.items || []);
+    } finally {
+      setIsExportingFB(false);
+    }
+  };
+
   const exportToExcel = (items: any[]) => {
     const rows = items.map(c => ({
       "顧客姓名": c.name || "",
@@ -438,6 +494,12 @@ export default function CustomerManagement() {
             <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
               <Download className="w-4 h-4 mr-2" />
               {isExporting ? "匯出中..." : selectedIds.size > 0 ? `匯出 ${selectedIds.size} 筆` : "匯出 Excel"}
+            </Button>
+          )}
+          {canExport && (
+            <Button onClick={handleFbExport} disabled={isExportingFB || !data?.items?.length} variant="outline" size="sm" className="text-blue-600 border-blue-300 hover:bg-blue-50">
+              <Facebook className="w-4 h-4 mr-2" />
+              {isExportingFB ? "匯出中..." : "FB受眾匯出"}
             </Button>
           )}
         </div>
