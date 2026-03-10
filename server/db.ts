@@ -1035,24 +1035,35 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
     const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     const fmt = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
     const customerIds = items.map(c => c.id);
+    
+    // Process in batches of 500 to avoid SQL IN clause limits
+    const BATCH_SIZE = 500;
     try {
-      const statsRows: any[] = await db.execute(sql`
-        SELECT customerId,
-          SUM(CASE WHEN shippedAt >= ${fmt(sixMonthsAgo)} AND shippedAt <= ${fmt(now)} THEN 1 ELSE 0 END) AS ordersIn6m,
-          SUM(CASE WHEN shippedAt >= ${fmt(oneYearAgo)} AND shippedAt < ${fmt(sixMonthsAgo)} THEN 1 ELSE 0 END) AS ordersIn6to12m,
-          COALESCE(SUM(CASE WHEN orderDate >= ${fmt(oneYearAgo)} THEN CAST(total AS DECIMAL(12,2)) ELSE 0 END), 0) AS ltvOneYear
-        FROM orders
-        WHERE customerId IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})
-          AND orderStatus != -1 AND isShipped = 1 AND shippedAt IS NOT NULL
-          AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
-        GROUP BY customerId
-      `);
-      for (const row of statsRows) {
-        intervalStats.set(Number(row.customerId), {
-          ordersIn6m: Number(row.ordersIn6m || 0),
-          ordersIn6to12m: Number(row.ordersIn6to12m || 0),
-          ltvOneYear: parseFloat(String(row.ltvOneYear || 0)),
-        });
+      for (let i = 0; i < customerIds.length; i += BATCH_SIZE) {
+        const batchIds = customerIds.slice(i, i + BATCH_SIZE);
+        const rawResult: any = await db.execute(sql`
+          SELECT customerId,
+            SUM(CASE WHEN shippedAt >= ${fmt(sixMonthsAgo)} AND shippedAt <= ${fmt(now)} THEN 1 ELSE 0 END) AS ordersIn6m,
+            SUM(CASE WHEN shippedAt >= ${fmt(oneYearAgo)} AND shippedAt < ${fmt(sixMonthsAgo)} THEN 1 ELSE 0 END) AS ordersIn6to12m,
+            COALESCE(SUM(CASE WHEN orderDate >= ${fmt(oneYearAgo)} THEN CAST(total AS DECIMAL(12,2)) ELSE 0 END), 0) AS ltvOneYear
+          FROM orders
+          WHERE customerId IN (${sql.join(batchIds.map(id => sql`${id}`), sql`, `)})
+            AND orderStatus != -1 AND isShipped = 1 AND shippedAt IS NOT NULL
+            AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
+          GROUP BY customerId
+        `);
+        // db.execute returns [rows, fields] - extract rows
+        const statsRows: any[] = Array.isArray(rawResult[0]) && rawResult[0].length > 0 && typeof rawResult[0][0] === 'object' && 'customerId' in rawResult[0][0]
+          ? rawResult[0]
+          : rawResult;
+        for (const row of statsRows) {
+          if (!row || typeof row !== 'object' || !('customerId' in row)) continue;
+          intervalStats.set(Number(row.customerId), {
+            ordersIn6m: Number(row.ordersIn6m || 0),
+            ordersIn6to12m: Number(row.ordersIn6to12m || 0),
+            ltvOneYear: parseFloat(String(row.ltvOneYear || 0)),
+          });
+        }
       }
     } catch (e) {
       // Silently fail - tooltip data is non-critical

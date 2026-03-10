@@ -1,0 +1,35 @@
+{
+  "query": "SELECT c.id, c.name, \n  COALESCE(SUM(CASE WHEN o.orderDate >= DATE_SUB(NOW(), INTERVAL 1 YEAR) THEN CAST(o.total AS DECIMAL(12,2)) ELSE 0 END), 0) AS ltvOneYear\nFROM customers c\nLEFT JOIN orders o ON o.customerId = c.id \n  AND o.orderStatus != -1 AND o.isShipped = 1 AND o.shippedAt IS NOT NULL\n  AND (o.orderStatusText = '已完成' OR o.orderStatusText IS NULL) \n  AND (o.shippingStatus IS NULL OR o.shippingStatus != '已退貨')\nGROUP BY c.id, c.name\nHAVING ltvOneYear > 0\nORDER BY ltvOneYear DESC\nLIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT c.id, c.name, \n  COALESCE(SUM(CASE WHEN o.orderDate >= DATE_SUB(NOW(), INTERVAL 1 YEAR) THEN CAST(o.total AS DECIMAL(12,2)) ELSE 0 END), 0) AS ltvOneYear\nFROM customers c\nLEFT JOIN orders o ON o.customerId = c.id \n  AND o.orderStatus != -1 AND o.isShipped = 1 AND o.shippedAt IS NOT NULL\n  AND (o.orderStatusText = '已完成' OR o.orderStatusText IS NULL) \n  AND (o.shippingStatus IS NULL OR o.shippingStatus != '已退貨')\nGROUP BY c.id, c.name\nHAVING ltvOneYear > 0\nORDER BY ltvOneYear DESC\nLIMIT 5;",
+  "rows": [
+    {
+      "id": "158248",
+      "name": "謝沛瀅",
+      "ltvOneYear": "30315.00"
+    },
+    {
+      "id": "158182",
+      "name": "陳少棠",
+      "ltvOneYear": "29684.00"
+    },
+    {
+      "id": "158192",
+      "name": "李晞羽",
+      "ltvOneYear": "29391.00"
+    },
+    {
+      "id": "171621",
+      "name": "范佳樺",
+      "ltvOneYear": "28146.00"
+    },
+    {
+      "id": "156765",
+      "name": "黃鈺筑",
+      "ltvOneYear": "28113.00"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tltvOneYear\n158248\t謝沛瀅\t30315.00\n158182\t陳少棠\t29684.00\n158192\t李晞羽\t29391.00\n171621\t范佳樺\t28146.00\n156765\t黃鈺筑\t28113.00\n",
+  "stderr": "",
+  "execution_time_ms": 1838
+}

@@ -156,3 +156,4 @@
 - [x] 新增：客戶匯出 Excel 包含地址、性別、手機載具、統一編號、公司欄位
 - [x] 新增：客戶資料管理「FB受眾檔案匯出」按鈕（CSV格式，email/phone/country欄位，phone轉886格式）
 - [x] 修改：FB受眾匯出 value 欄位填入客戶近一年 LTV（累積消費金額）
+- [x] Bug修復：FB受眾匯出 value 欄位為空，ltvOneYear 資料未正確傳到前端（原因：db.execute 返回嵌套陣列 + IN 子句過大，改為分批 500 筆查詢）

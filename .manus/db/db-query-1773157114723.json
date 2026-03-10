@@ -1,0 +1,70 @@
+{
+  "query": "SELECT c.id, c.name, c.totalSpent, \n  COALESCE(SUM(CASE WHEN o.orderDate >= DATE_SUB(NOW(), INTERVAL 1 YEAR) THEN CAST(o.total AS DECIMAL(12,2)) ELSE 0 END), 0) AS ltvOneYear\nFROM customers c\nLEFT JOIN orders o ON o.customerId = c.id \n  AND o.orderStatus != -1 AND o.isShipped = 1 AND o.shippedAt IS NOT NULL\n  AND (o.orderStatusText = '已完成' OR o.orderStatusText IS NULL) \n  AND (o.shippingStatus IS NULL OR o.shippingStatus != '已退貨')\nGROUP BY c.id, c.name, c.totalSpent\nHAVING ltvOneYear > 0\nLIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT c.id, c.name, c.totalSpent, \n  COALESCE(SUM(CASE WHEN o.orderDate >= DATE_SUB(NOW(), INTERVAL 1 YEAR) THEN CAST(o.total AS DECIMAL(12,2)) ELSE 0 END), 0) AS ltvOneYear\nFROM customers c\nLEFT JOIN orders o ON o.customerId = c.id \n  AND o.orderStatus != -1 AND o.isShipped = 1 AND o.shippedAt IS NOT NULL\n  AND (o.orderStatusText = '已完成' OR o.orderStatusText IS NULL) \n  AND (o.shippingStatus IS NULL OR o.shippingStatus != '已退貨')\nGROUP BY c.id, c.name, c.totalSpent\nHAVING ltvOneYear > 0\nLIMIT 10;",
+  "rows": [
+    {
+      "id": "155105",
+      "name": "林湘瑾",
+      "totalSpent": "1680.00",
+      "ltvOneYear": "1680.00"
+    },
+    {
+      "id": "152808",
+      "name": "林雯婷",
+      "totalSpent": "3180.00",
+      "ltvOneYear": "3180.00"
+    },
+    {
+      "id": "198877",
+      "name": "賴姿穎",
+      "totalSpent": "4200.00",
+      "ltvOneYear": "4200.00"
+    },
+    {
+      "id": "120459",
+      "name": "劉靜儒",
+      "totalSpent": "3360.00",
+      "ltvOneYear": "3360.00"
+    },
+    {
+      "id": "198147",
+      "name": "曾秝宸",
+      "totalSpent": "1249.00",
+      "ltvOneYear": "1249.00"
+    },
+    {
+      "id": "152786",
+      "name": "鄭淑文",
+      "totalSpent": "7035.00",
+      "ltvOneYear": "7035.00"
+    },
+    {
+      "id": "164782",
+      "name": "張育瑋",
+      "totalSpent": "5040.00",
+      "ltvOneYear": "5040.00"
+    },
+    {
+      "id": "159620",
+      "name": "曹育瑋",
+      "totalSpent": "5040.00",
+      "ltvOneYear": "5040.00"
+    },
+    {
+      "id": "157421",
+      "name": "魏苑如",
+      "totalSpent": "1680.00",
+      "ltvOneYear": "1680.00"
+    },
+    {
+      "id": "151293",
+      "name": "張家瑜",
+      "totalSpent": "3210.00",
+      "ltvOneYear": "3210.00"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\ttotalSpent\tltvOneYear\n155105\t林湘瑾\t1680.00\t1680.00\n152808\t林雯婷\t3180.00\t3180.00\n198877\t賴姿穎\t4200.00\t4200.00\n120459\t劉靜儒\t3360.00\t3360.00\n198147\t曾秝宸\t1249.00\t1249.00\n152786\t鄭淑文\t7035.00\t7035.00\n164782\t張育瑋\t5040.00\t5040.00\n159620\t曹育瑋\t5040.00\t5040.00\n157421\t魏苑如\t1680.00\t1680.00\n151293\t張家瑜\t3210.00\t3210.00\n",
+  "stderr": "",
+  "execution_time_ms": 2332
+}
