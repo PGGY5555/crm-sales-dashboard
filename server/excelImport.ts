@@ -371,6 +371,11 @@ export async function importCustomersFromExcel(buffer: Buffer, jobId?: number): 
             const custom1 = row["自訂1"]?.trim() || null;
             const custom2 = row["自訂2"]?.trim() || null;
             const custom3 = row["自訂3"]?.trim() || null;
+            const address = row["地址"]?.trim() || null;
+            const gender = row["性別"]?.trim() || null;
+            const mobileCarrier = row["手機載具"]?.trim() || null;
+            const taxId = row["統一編號"]?.trim() || null;
+            const company = row["公司"]?.trim() || null;
 
             let sfShippedAt: Date | null = null;
             const sfShippedStr = row["SF出貨日"]?.trim();
@@ -388,10 +393,10 @@ export async function importCustomersFromExcel(buffer: Buffer, jobId?: number): 
 
             const rawJson = escJson(row);
 
-            return `(${esc(extId)}, ${esc(name)}, ${esc(email)}, ${esc(phone)}, ${escDate(registeredAt)}, 0, '0', ${esc(birthday)}, ${esc(tags)}, ${esc(memberLevel)}, ${esc(credits)}, ${esc(recipientName)}, ${esc(recipientPhone)}, ${esc(recipientEmail)}, ${esc(notes)}, ${esc(blacklisted)}, ${esc(lineUid)}, ${esc(note1)}, ${esc(note2)}, ${esc(custom1)}, ${esc(custom2)}, ${esc(custom3)}, ${escDate(sfShippedAt)}, ${rawJson})`;
+            return `(${esc(extId)}, ${esc(name)}, ${esc(email)}, ${esc(phone)}, ${escDate(registeredAt)}, 0, '0', ${esc(birthday)}, ${esc(tags)}, ${esc(memberLevel)}, ${esc(credits)}, ${esc(recipientName)}, ${esc(recipientPhone)}, ${esc(recipientEmail)}, ${esc(notes)}, ${esc(blacklisted)}, ${esc(lineUid)}, ${esc(note1)}, ${esc(note2)}, ${esc(custom1)}, ${esc(custom2)}, ${esc(custom3)}, ${esc(address)}, ${esc(gender)}, ${esc(mobileCarrier)}, ${esc(taxId)}, ${esc(company)}, ${escDate(sfShippedAt)}, ${rawJson})`;
           }).join(",\n");
 
-          const bulkSql = `INSERT INTO customers (externalId, name, email, phone, registeredAt, totalOrders, totalSpent, birthday, tags, memberLevel, credits, recipientName, recipientPhone, recipientEmail, notes, blacklisted, lineUid, note1, note2, custom1, custom2, custom3, sfShippedAt, rawData)
+          const bulkSql = `INSERT INTO customers (externalId, name, email, phone, registeredAt, totalOrders, totalSpent, birthday, tags, memberLevel, credits, recipientName, recipientPhone, recipientEmail, notes, blacklisted, lineUid, note1, note2, custom1, custom2, custom3, address, gender, mobileCarrier, taxId, company, sfShippedAt, rawData)
 VALUES ${values}
 ON DUPLICATE KEY UPDATE
   name = IF(VALUES(name) IS NOT NULL AND VALUES(name) != '', VALUES(name), name),
@@ -412,6 +417,11 @@ ON DUPLICATE KEY UPDATE
   custom1 = IF(VALUES(custom1) IS NOT NULL AND VALUES(custom1) != '', VALUES(custom1), custom1),
   custom2 = IF(VALUES(custom2) IS NOT NULL AND VALUES(custom2) != '', VALUES(custom2), custom2),
   custom3 = IF(VALUES(custom3) IS NOT NULL AND VALUES(custom3) != '', VALUES(custom3), custom3),
+  address = IF(VALUES(address) IS NOT NULL AND VALUES(address) != '', VALUES(address), address),
+  gender = IF(VALUES(gender) IS NOT NULL AND VALUES(gender) != '', VALUES(gender), gender),
+  mobileCarrier = IF(VALUES(mobileCarrier) IS NOT NULL AND VALUES(mobileCarrier) != '', VALUES(mobileCarrier), mobileCarrier),
+  taxId = IF(VALUES(taxId) IS NOT NULL AND VALUES(taxId) != '', VALUES(taxId), taxId),
+  company = IF(VALUES(company) IS NOT NULL AND VALUES(company) != '', VALUES(company), company),
   sfShippedAt = IF(VALUES(sfShippedAt) IS NOT NULL, VALUES(sfShippedAt), sfShippedAt),
   rawData = VALUES(rawData)`;
 
@@ -450,6 +460,11 @@ ON DUPLICATE KEY UPDATE
                 custom1: row["自訂1"]?.trim() || null,
                 custom2: row["自訂2"]?.trim() || null,
                 custom3: row["自訂3"]?.trim() || null,
+                address: row["地址"]?.trim() || null,
+                gender: row["性別"]?.trim() || null,
+                mobileCarrier: row["手機載具"]?.trim() || null,
+                taxId: row["統一編號"]?.trim() || null,
+                company: row["公司"]?.trim() || null,
                 sfShippedAt: (() => { const s = row["SF出貨日"]?.trim(); if (!s) return null; return parseDate(s); })(),
                 rawData: row,
               }).onDuplicateKeyUpdate({
@@ -472,6 +487,11 @@ ON DUPLICATE KEY UPDATE
                   custom1: row["自訂1"]?.trim() ? row["自訂1"].trim() : sql`customers.custom1`,
                   custom2: row["自訂2"]?.trim() ? row["自訂2"].trim() : sql`customers.custom2`,
                   custom3: row["自訂3"]?.trim() ? row["自訂3"].trim() : sql`customers.custom3`,
+                  address: row["地址"]?.trim() ? row["地址"].trim() : sql`customers.address`,
+                  gender: row["性別"]?.trim() ? row["性別"].trim() : sql`customers.gender`,
+                  mobileCarrier: row["手機載具"]?.trim() ? row["手機載具"].trim() : sql`customers.mobileCarrier`,
+                  taxId: row["統一編號"]?.trim() ? row["統一編號"].trim() : sql`customers.taxId`,
+                  company: row["公司"]?.trim() ? row["公司"].trim() : sql`customers.company`,
                   sfShippedAt: (() => { const s = row["SF出貨日"]?.trim(); if (!s) return sql`customers.sfShippedAt`; return parseDate(s) || sql`customers.sfShippedAt`; })(),
                   rawData: row,
                 },

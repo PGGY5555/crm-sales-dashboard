@@ -56,6 +56,16 @@ export const customers = mysqlTable("customers", {
   custom1: text("custom1"),
   custom2: text("custom2"),
   custom3: text("custom3"),
+  /** 地址 */
+  address: text("address"),
+  /** 性別 */
+  gender: varchar("gender", { length: 16 }),
+  /** 手機載具 */
+  mobileCarrier: varchar("mobileCarrier", { length: 128 }),
+  /** 統一編號 */
+  taxId: varchar("taxId", { length: 32 }),
+  /** 公司 */
+  company: varchar("company", { length: 255 }),
   /** LINE UID */
   lineUid: varchar("lineUid", { length: 255 }),
   /** SF出貨日 */
