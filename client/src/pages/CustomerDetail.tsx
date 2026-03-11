@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,53 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Mail, Phone, Calendar, Tag, CreditCard, ShoppingCart, Package, User, MessageSquare, Shield, Hash, Pencil, Save, X, MapPin, Building2, FileText, Smartphone } from "lucide-react";
 import { toast } from "sonner";
+
+// Editable field helper - defined OUTSIDE the component to avoid re-creation on each render
+function EditableField({ label, icon: Icon, fieldKey, value, onChange, editing }: {
+  label: string; icon: any; fieldKey: string; value: string; onChange: (key: string, val: string) => void; editing: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
+      {editing ? (
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground">{label}</label>
+          <Input
+            value={value}
+            onChange={e => onChange(fieldKey, e.target.value)}
+            className="h-8 text-sm mt-0.5"
+            placeholder={label}
+          />
+        </div>
+      ) : (
+        <span>{label}：{value || "-"}</span>
+      )}
+    </div>
+  );
+}
+
+// Editable textarea helper - defined OUTSIDE the component
+function EditableTextarea({ label, icon: Icon, fieldKey, value, onChange, editing }: {
+  label: string; icon: any; fieldKey: string; value: string; onChange: (key: string, val: string) => void; editing: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+        <Icon className="w-4 h-4" /> {label}
+      </h4>
+      {editing ? (
+        <Textarea
+          value={value}
+          onChange={e => onChange(fieldKey, e.target.value)}
+          className="text-sm min-h-[60px]"
+          placeholder={`輸入${label}...`}
+        />
+      ) : (
+        <p className="text-sm bg-muted/50 rounded-md p-3 whitespace-pre-wrap">{value || "-"}</p>
+      )}
+    </div>
+  );
+}
 
 export default function CustomerDetail() {
   const [matched1, params1] = useRoute("/customer/:id");
@@ -38,7 +85,7 @@ export default function CustomerDetail() {
   const [form, setForm] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (data?.customer) {
+    if (data?.customer && !editing) {
       const c = data.customer;
       setForm({
         name: c.name || "",
@@ -66,7 +113,7 @@ export default function CustomerDetail() {
         company: c.company || "",
       });
     }
-  }, [data?.customer]);
+  }, [data?.customer, editing]);
 
   const handleSave = () => {
     updateMutation.mutate({
@@ -129,9 +176,9 @@ export default function CustomerDetail() {
     setEditing(false);
   };
 
-  const updateField = (key: string, value: string) => {
+  const updateField = useCallback((key: string, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }));
-  };
+  }, []);
 
   if (isLoading) {
     return (
@@ -181,45 +228,6 @@ export default function CustomerDetail() {
     };
     return labels[lc] || lc;
   };
-
-  // Editable field helper
-  const EditableField = ({ label, icon: Icon, fieldKey, type = "text" }: { label: string; icon: any; fieldKey: string; type?: string }) => (
-    <div className="flex items-center gap-2 text-sm">
-      <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
-      {editing ? (
-        <div className="flex-1">
-          <label className="text-xs text-muted-foreground">{label}</label>
-          <Input
-            value={form[fieldKey] || ""}
-            onChange={e => updateField(fieldKey, e.target.value)}
-            className="h-8 text-sm mt-0.5"
-            placeholder={label}
-          />
-        </div>
-      ) : (
-        <span>{label}：{form[fieldKey] || "-"}</span>
-      )}
-    </div>
-  );
-
-  // Editable textarea helper
-  const EditableTextarea = ({ label, icon: Icon, fieldKey }: { label: string; icon: any; fieldKey: string }) => (
-    <div className="space-y-2">
-      <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-        <Icon className="w-4 h-4" /> {label}
-      </h4>
-      {editing ? (
-        <Textarea
-          value={form[fieldKey] || ""}
-          onChange={e => updateField(fieldKey, e.target.value)}
-          className="text-sm min-h-[60px]"
-          placeholder={`輸入${label}...`}
-        />
-      ) : (
-        <p className="text-sm bg-muted/50 rounded-md p-3 whitespace-pre-wrap">{form[fieldKey] || "-"}</p>
-      )}
-    </div>
-  );
 
   return (
     <div className="space-y-6">
@@ -305,22 +313,22 @@ export default function CustomerDetail() {
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-muted-foreground">顧客資訊</h4>
                 <div className="space-y-2">
-                  <EditableField label="電子信箱" icon={Mail} fieldKey="email" />
-                  <EditableField label="手機" icon={Phone} fieldKey="phone" />
-                  <EditableField label="生日" icon={Calendar} fieldKey="birthday" />
+                  <EditableField label="電子信箱" icon={Mail} fieldKey="email" value={form.email || ""} onChange={updateField} editing={editing} />
+                  <EditableField label="手機" icon={Phone} fieldKey="phone" value={form.phone || ""} onChange={updateField} editing={editing} />
+                  <EditableField label="生日" icon={Calendar} fieldKey="birthday" value={form.birthday || ""} onChange={updateField} editing={editing} />
                   <div className="flex items-center gap-2 text-sm">
                     <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
                     <span>註冊：{c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "-"}</span>
                   </div>
-                  <EditableField label="LINE UID" icon={Hash} fieldKey="lineUid" />
+                  <EditableField label="LINE UID" icon={Hash} fieldKey="lineUid" value={form.lineUid || ""} onChange={updateField} editing={editing} />
                 </div>
               </div>
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-muted-foreground">收件人資訊</h4>
                 <div className="space-y-2">
-                  <EditableField label="收件人姓名" icon={User} fieldKey="recipientName" />
-                  <EditableField label="收件人手機" icon={Phone} fieldKey="recipientPhone" />
-                  <EditableField label="收件人信箱" icon={Mail} fieldKey="recipientEmail" />
+                  <EditableField label="收件人姓名" icon={User} fieldKey="recipientName" value={form.recipientName || ""} onChange={updateField} editing={editing} />
+                  <EditableField label="收件人手機" icon={Phone} fieldKey="recipientPhone" value={form.recipientPhone || ""} onChange={updateField} editing={editing} />
+                  <EditableField label="收件人信箱" icon={Mail} fieldKey="recipientEmail" value={form.recipientEmail || ""} onChange={updateField} editing={editing} />
                 </div>
               </div>
             </div>
@@ -330,7 +338,7 @@ export default function CustomerDetail() {
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-muted-foreground">其他資訊</h4>
                 <div className="space-y-2">
-                  <EditableField label="地址" icon={MapPin} fieldKey="address" />
+                  <EditableField label="地址" icon={MapPin} fieldKey="address" value={form.address || ""} onChange={updateField} editing={editing} />
                   <div className="flex items-center gap-2 text-sm">
                     <User className="w-4 h-4 text-muted-foreground shrink-0" />
                     {editing ? (
@@ -351,14 +359,14 @@ export default function CustomerDetail() {
                       <span>性別：{form.gender || "-"}</span>
                     )}
                   </div>
-                  <EditableField label="手機載具" icon={Smartphone} fieldKey="mobileCarrier" />
+                  <EditableField label="手機載具" icon={Smartphone} fieldKey="mobileCarrier" value={form.mobileCarrier || ""} onChange={updateField} editing={editing} />
                 </div>
               </div>
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-muted-foreground">公司/統編資訊</h4>
                 <div className="space-y-2">
-                  <EditableField label="統一編號" icon={FileText} fieldKey="taxId" />
-                  <EditableField label="公司" icon={Building2} fieldKey="company" />
+                  <EditableField label="統一編號" icon={FileText} fieldKey="taxId" value={form.taxId || ""} onChange={updateField} editing={editing} />
+                  <EditableField label="公司" icon={Building2} fieldKey="company" value={form.company || ""} onChange={updateField} editing={editing} />
                 </div>
               </div>
             </div>
@@ -387,11 +395,11 @@ export default function CustomerDetail() {
 
             {/* Notes section */}
             <Separator />
-            <EditableTextarea label="顧客備註" icon={MessageSquare} fieldKey="notes" />
+            <EditableTextarea label="顧客備註" icon={MessageSquare} fieldKey="notes" value={form.notes || ""} onChange={updateField} editing={editing} />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <EditableTextarea label="備註 1" icon={MessageSquare} fieldKey="note1" />
-              <EditableTextarea label="備註 2" icon={MessageSquare} fieldKey="note2" />
+              <EditableTextarea label="備註 1" icon={MessageSquare} fieldKey="note1" value={form.note1 || ""} onChange={updateField} editing={editing} />
+              <EditableTextarea label="備註 2" icon={MessageSquare} fieldKey="note2" value={form.note2 || ""} onChange={updateField} editing={editing} />
             </div>
 
             {/* Custom fields */}
@@ -532,7 +540,7 @@ export default function CustomerDetail() {
                   orders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-mono text-sm">
-                        <Link href={`/order-detail/${order.id}`} className="text-primary hover:underline cursor-pointer">
+                        <Link href={`/order-detail/${order.id}`} className="text-primary hover:underline">
                           {order.externalId || `#${order.id}`}
                         </Link>
                       </TableCell>

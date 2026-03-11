@@ -249,7 +249,7 @@ export const appRouter = router({
   customerMgmt: router({
     list: protectedProcedure
       .input(z.object({
-        searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "mobileCarrier", "taxId"]).optional(),
         searchValue: z.string().optional(),
         registeredFrom: z.date().optional(),
         registeredTo: z.date().optional(),
@@ -284,7 +284,7 @@ export const appRouter = router({
 
     export: protectedProcedure
       .input(z.object({
-        searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+        searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "mobileCarrier", "taxId"]).optional(),
         searchValue: z.string().optional(),
         registeredFrom: z.date().optional(),
         registeredTo: z.date().optional(),
@@ -323,7 +323,7 @@ export const appRouter = router({
       .input(z.object({
         ids: z.array(z.number()).optional(),
         filters: z.object({
-          searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+          searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "mobileCarrier", "taxId"]).optional(),
           searchValue: z.string().optional(),
           registeredFrom: z.date().optional(),
           registeredTo: z.date().optional(),
@@ -380,7 +380,7 @@ export const appRouter = router({
       .input(z.object({
         ids: z.array(z.number()).optional(),
         filters: z.object({
-          searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail"]).optional(),
+          searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "mobileCarrier", "taxId"]).optional(),
           searchValue: z.string().optional(),
           registeredFrom: z.date().optional(),
           registeredTo: z.date().optional(),

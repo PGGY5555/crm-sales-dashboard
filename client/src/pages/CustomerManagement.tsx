@@ -22,6 +22,8 @@ const SEARCH_FIELDS = [
   { value: "recipientName", label: "收件人姓名" },
   { value: "recipientPhone", label: "收件人手機" },
   { value: "recipientEmail", label: "收件人信箱" },
+  { value: "mobileCarrier", label: "手機條碼" },
+  { value: "taxId", label: "統一編號" },
 ] as const;
 
 const LIFECYCLE_OPTIONS = [

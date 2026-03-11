@@ -875,7 +875,7 @@ export async function getLLMContextData(filters: DashboardFilters = {}) {
 
 export interface CustomerManagementFilters {
   // X-axis: text search fields
-  searchField?: "customerName" | "customerPhone" | "customerEmail" | "recipientName" | "recipientPhone" | "recipientEmail";
+  searchField?: "customerName" | "customerPhone" | "customerEmail" | "recipientName" | "recipientPhone" | "recipientEmail" | "mobileCarrier" | "taxId";
   searchValue?: string;
   // Y-axis: condition filters
   registeredFrom?: Date;
@@ -923,6 +923,8 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
       case "recipientName": conditions.push(like(customers.recipientName, val)); break;
       case "recipientPhone": conditions.push(like(customers.recipientPhone, val)); break;
       case "recipientEmail": conditions.push(like(customers.recipientEmail, val)); break;
+      case "mobileCarrier": conditions.push(like(customers.mobileCarrier, val)); break;
+      case "taxId": conditions.push(like(customers.taxId, val)); break;
     }
   }
 
