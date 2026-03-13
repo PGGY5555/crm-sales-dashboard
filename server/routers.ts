@@ -138,7 +138,7 @@ export const appRouter = router({
     customers: protectedProcedure
       .input(z.object({
         page: z.number().default(0),
-        limit: z.number().default(20),
+        limit: z.number().max(500).default(20),
         search: z.string().optional(),
         lifecycles: z.array(z.string()).optional(),
       }).optional())
@@ -276,7 +276,7 @@ export const appRouter = router({
         gender: z.string().optional(),
         company: z.string().optional(),
         page: z.number().default(0),
-        limit: z.number().default(50),
+        limit: z.number().max(500).default(50),
       }).optional())
       .query(async ({ input }) => {
         return getCustomerManagement(input ?? {});
@@ -518,7 +518,7 @@ export const appRouter = router({
         shippingStatus: z.string().optional(),
         orderStatusText: z.string().optional(),
         page: z.number().default(0),
-        limit: z.number().default(50),
+        limit: z.number().max(500).default(50),
       }).optional())
       .query(async ({ input }) => {
         return getOrderManagement(input ?? {});

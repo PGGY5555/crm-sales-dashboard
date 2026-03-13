@@ -8,6 +8,8 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import {
   parseAndStoreJson,
   importCustomersChunk,
@@ -85,6 +87,34 @@ const verifyAdminSession = verifyAuthSession;
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // SECURITY: Add security headers
+  app.use(helmet({
+    contentSecurityPolicy: false, // CSP handled by Vite in dev
+    crossOriginEmbedderPolicy: false, // Allow embedding
+  }));
+
+  // SECURITY: Rate limiting for API routes
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 120, // 120 requests per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "請求過於頻繁，請稍後再試" },
+  });
+  app.use("/api/", apiLimiter);
+
+  // SECURITY: Stricter rate limit for import/upload endpoints
+  const importLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30, // 30 requests per minute
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "匯入請求過於頻繁，請稍後再試" },
+  });
+  app.use("/api/upload/", importLimiter);
+  app.use("/api/import/", importLimiter);
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerOAuthRoutes(app);
@@ -375,6 +405,13 @@ async function startServer() {
       const { jobId, fileType, batch, offset, totalRows } = req.body;
       if (!jobId || !fileType || !batch || !Array.isArray(batch)) {
         res.status(400).json({ error: "缺少必要參數" });
+        return;
+      }
+
+      // SECURITY: Limit batch size to prevent memory exhaustion
+      const MAX_BATCH_SIZE = 2000;
+      if (batch.length > MAX_BATCH_SIZE) {
+        res.status(400).json({ error: `單次批次不可超過 ${MAX_BATCH_SIZE} 筆` });
         return;
       }
 

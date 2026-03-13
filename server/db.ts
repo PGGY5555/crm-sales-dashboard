@@ -682,9 +682,16 @@ export async function getCustomerRegistrationTrend(filters: DashboardFilters = {
   const where = and(...conditions);
 
   // Use raw SQL to avoid Drizzle's column reference mismatch in GROUP BY with only_full_group_by mode
-  const lifecycleClause = (filters.lifecycles && filters.lifecycles.length > 0)
-    ? `AND \`lifecycle\` IN (${filters.lifecycles.map(l => `'${l}'`).join(',')})`
-    : '';
+  // SECURITY: Whitelist lifecycle values to prevent SQL injection
+  const VALID_LIFECYCLES = ['N', 'A', 'S', 'L', 'D', 'O'];
+  let lifecycleClause = '';
+  if (filters.lifecycles && filters.lifecycles.length > 0) {
+    const validValues = filters.lifecycles.filter(l => VALID_LIFECYCLES.includes(l));
+    if (validValues.length === 0) {
+      return []; // All provided lifecycles were invalid
+    }
+    lifecycleClause = `AND \`lifecycle\` IN (${validValues.map(l => `'${l}'`).join(',')})`;
+  }
   const rawResult = await db.execute(sql.raw(
     `SELECT DATE_FORMAT(registeredAt, '%Y-%m') as month, COUNT(*) as count, COALESCE(SUM(totalSpent), 0) as totalSpent FROM \`customers\` WHERE registeredAt IS NOT NULL ${lifecycleClause} GROUP BY month ORDER BY month`
   ));
@@ -1028,7 +1035,45 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
     .where(where);
 
   const items = await db
-    .select()
+    .select({
+      id: customers.id,
+      externalId: customers.externalId,
+      name: customers.name,
+      email: customers.email,
+      phone: customers.phone,
+      registeredAt: customers.registeredAt,
+      lastShipmentAt: customers.lastShipmentAt,
+      totalOrders: customers.totalOrders,
+      totalSpent: customers.totalSpent,
+      lifecycle: customers.lifecycle,
+      avgRepurchaseDays: customers.avgRepurchaseDays,
+      birthday: customers.birthday,
+      tags: customers.tags,
+      memberLevel: customers.memberLevel,
+      credits: customers.credits,
+      lastPurchaseDate: customers.lastPurchaseDate,
+      lastPurchaseAmount: customers.lastPurchaseAmount,
+      recipientName: customers.recipientName,
+      recipientPhone: customers.recipientPhone,
+      recipientEmail: customers.recipientEmail,
+      notes: customers.notes,
+      blacklisted: customers.blacklisted,
+      note1: customers.note1,
+      note2: customers.note2,
+      custom1: customers.custom1,
+      custom2: customers.custom2,
+      custom3: customers.custom3,
+      address: customers.address,
+      gender: customers.gender,
+      mobileCarrier: customers.mobileCarrier,
+      taxId: customers.taxId,
+      company: customers.company,
+      lineUid: customers.lineUid,
+      sfShippedAt: customers.sfShippedAt,
+      // SECURITY: rawData excluded - not needed for list display
+      createdAt: customers.createdAt,
+      updatedAt: customers.updatedAt,
+    })
     .from(customers)
     .where(where)
     .orderBy(desc(customers.registeredAt))
@@ -1230,7 +1275,7 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
       paymentMethod: orders.paymentMethod,
       shippingMethod: orders.shippingMethod,
       shippingAddress: orders.shippingAddress,
-      rawData: orders.rawData,
+      // SECURITY: rawData excluded - not needed for list display
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
       shipmentNumber: orders.shipmentNumber,
@@ -1458,7 +1503,45 @@ export async function getCustomerDetail(customerId: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId));
+  // SECURITY: Exclude rawData from customer detail response
+  const [customer] = await db.select({
+    id: customers.id,
+    externalId: customers.externalId,
+    name: customers.name,
+    email: customers.email,
+    phone: customers.phone,
+    registeredAt: customers.registeredAt,
+    lastShipmentAt: customers.lastShipmentAt,
+    totalOrders: customers.totalOrders,
+    totalSpent: customers.totalSpent,
+    lifecycle: customers.lifecycle,
+    avgRepurchaseDays: customers.avgRepurchaseDays,
+    birthday: customers.birthday,
+    tags: customers.tags,
+    memberLevel: customers.memberLevel,
+    credits: customers.credits,
+    lastPurchaseDate: customers.lastPurchaseDate,
+    lastPurchaseAmount: customers.lastPurchaseAmount,
+    recipientName: customers.recipientName,
+    recipientPhone: customers.recipientPhone,
+    recipientEmail: customers.recipientEmail,
+    notes: customers.notes,
+    blacklisted: customers.blacklisted,
+    note1: customers.note1,
+    note2: customers.note2,
+    custom1: customers.custom1,
+    custom2: customers.custom2,
+    custom3: customers.custom3,
+    address: customers.address,
+    gender: customers.gender,
+    mobileCarrier: customers.mobileCarrier,
+    taxId: customers.taxId,
+    company: customers.company,
+    lineUid: customers.lineUid,
+    sfShippedAt: customers.sfShippedAt,
+    createdAt: customers.createdAt,
+    updatedAt: customers.updatedAt,
+  }).from(customers).where(eq(customers.id, customerId));
   if (!customer) return null;
 
   // Get all orders for this customer
@@ -1547,7 +1630,45 @@ export async function updateCustomer(customerId: number, data: {
 
   await db.update(customers).set(data).where(eq(customers.id, customerId));
 
-  const [updated] = await db.select().from(customers).where(eq(customers.id, customerId));
+  // SECURITY: Exclude rawData from response
+  const [updated] = await db.select({
+    id: customers.id,
+    externalId: customers.externalId,
+    name: customers.name,
+    email: customers.email,
+    phone: customers.phone,
+    registeredAt: customers.registeredAt,
+    lastShipmentAt: customers.lastShipmentAt,
+    totalOrders: customers.totalOrders,
+    totalSpent: customers.totalSpent,
+    lifecycle: customers.lifecycle,
+    avgRepurchaseDays: customers.avgRepurchaseDays,
+    birthday: customers.birthday,
+    tags: customers.tags,
+    memberLevel: customers.memberLevel,
+    credits: customers.credits,
+    lastPurchaseDate: customers.lastPurchaseDate,
+    lastPurchaseAmount: customers.lastPurchaseAmount,
+    recipientName: customers.recipientName,
+    recipientPhone: customers.recipientPhone,
+    recipientEmail: customers.recipientEmail,
+    notes: customers.notes,
+    blacklisted: customers.blacklisted,
+    note1: customers.note1,
+    note2: customers.note2,
+    custom1: customers.custom1,
+    custom2: customers.custom2,
+    custom3: customers.custom3,
+    address: customers.address,
+    gender: customers.gender,
+    mobileCarrier: customers.mobileCarrier,
+    taxId: customers.taxId,
+    company: customers.company,
+    lineUid: customers.lineUid,
+    sfShippedAt: customers.sfShippedAt,
+    createdAt: customers.createdAt,
+    updatedAt: customers.updatedAt,
+  }).from(customers).where(eq(customers.id, customerId));
   return updated || null;
 }
 
@@ -1556,24 +1677,72 @@ export async function getOrderDetail(orderId: number) {
   const db = await getDb();
   if (!db) return null;
 
+  // SECURITY: Exclude rawData from order detail response
   const [order] = await db
-    .select()
+    .select({
+      id: orders.id,
+      externalId: orders.externalId,
+      cartToken: orders.cartToken,
+      customerId: orders.customerId,
+      customerExternalId: orders.customerExternalId,
+      customerName: orders.customerName,
+      customerEmail: orders.customerEmail,
+      customerPhone: orders.customerPhone,
+      orderStatus: orders.orderStatus,
+      progress: orders.progress,
+      total: orders.total,
+      shipmentFee: orders.shipmentFee,
+      salesRep: orders.salesRep,
+      isShipped: orders.isShipped,
+      shippedAt: orders.shippedAt,
+      archived: orders.archived,
+      orderDate: orders.orderDate,
+      recipientName: orders.recipientName,
+      recipientPhone: orders.recipientPhone,
+      recipientEmail: orders.recipientEmail,
+      orderSource: orders.orderSource,
+      paymentMethod: orders.paymentMethod,
+      shippingMethod: orders.shippingMethod,
+      shippingAddress: orders.shippingAddress,
+      shipmentNumber: orders.shipmentNumber,
+      deliveryNumber: orders.deliveryNumber,
+      logisticsStatus: orders.logisticsStatus,
+      shippingStatus: orders.shippingStatus,
+      orderStatusText: orders.orderStatusText,
+      createdAt: orders.createdAt,
+      updatedAt: orders.updatedAt,
+    })
     .from(orders)
     .where(eq(orders.id, orderId));
   if (!order) return null;
 
-  // Get customer info
+  // Get customer info (exclude rawData)
+  const customerSelect = {
+    id: customers.id,
+    externalId: customers.externalId,
+    name: customers.name,
+    email: customers.email,
+    phone: customers.phone,
+    registeredAt: customers.registeredAt,
+    totalOrders: customers.totalOrders,
+    totalSpent: customers.totalSpent,
+    lifecycle: customers.lifecycle,
+    memberLevel: customers.memberLevel,
+    blacklisted: customers.blacklisted,
+    tags: customers.tags,
+    lineUid: customers.lineUid,
+  };
   let customer = null;
   if (order.customerId) {
-    const [c] = await db.select().from(customers).where(eq(customers.id, order.customerId));
+    const [c] = await db.select(customerSelect).from(customers).where(eq(customers.id, order.customerId));
     customer = c || null;
   }
   if (!customer && order.customerExternalId) {
-    const [c] = await db.select().from(customers).where(eq(customers.externalId, order.customerExternalId));
+    const [c] = await db.select(customerSelect).from(customers).where(eq(customers.externalId, order.customerExternalId));
     customer = c || null;
   }
   if (!customer && order.customerEmail) {
-    const [c] = await db.select().from(customers).where(eq(customers.email, order.customerEmail));
+    const [c] = await db.select(customerSelect).from(customers).where(eq(customers.email, order.customerEmail));
     customer = c || null;
   }
 
