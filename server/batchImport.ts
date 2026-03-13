@@ -6,6 +6,7 @@ import { sql, eq } from "drizzle-orm";
 import { getDb } from "./db";
 import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
 import { classifyCustomer, calculateRepurchaseDays } from "./sync";
+import { clearRawData } from "./clearRawData";
 
 // Sub-batch size for bulk SQL
 const SQL_BATCH = 500;
@@ -166,6 +167,10 @@ ON DUPLICATE KEY UPDATE
     }
   }
 
+  // Clear rawData after successful customer batch import
+  await clearRawData(["customers"]);
+  console.log(`[BatchImport] Cleared rawData for customers table`);
+
   return { successRows: successCount, errorRows: errorCount };
 }
 
@@ -263,6 +268,10 @@ export async function batchImportOrders(batch: any[]): Promise<{ successRows: nu
     }
   }
 
+  // Clear rawData after successful order batch import
+  await clearRawData(["orders"]);
+  console.log(`[BatchImport] Cleared rawData for orders table`);
+
   return { successRows: successCount, errorRows: errorCount };
 }
 
@@ -290,6 +299,10 @@ export async function batchImportProducts(batch: any[]): Promise<{ successRows: 
       successCount++;
     } catch { errorCount++; }
   }
+
+  // Clear rawData after successful product batch import
+  await clearRawData(["products"]);
+  console.log(`[BatchImport] Cleared rawData for products table`);
 
   return { successRows: successCount, errorRows: errorCount };
 }
@@ -322,6 +335,10 @@ export async function batchImportLogistics(batch: any[]): Promise<{ successRows:
       errorCount++;
     }
   }
+
+  // Clear rawData after successful logistics batch import (orders table)
+  await clearRawData(["orders"]);
+  console.log(`[BatchImport] Cleared rawData for orders table (logistics)`);
 
   return { successRows: successCount, errorRows: errorCount };
 }

@@ -12,6 +12,7 @@ import { getDb } from "./db";
 import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
 import { classifyCustomer, calculateRepurchaseDays } from "./sync";
 import { storagePut } from "./storage";
+import { clearRawData } from "./clearRawData";
 
 // How many rows to process per HTTP request
 const CHUNK_SIZE = 1000;
@@ -323,6 +324,9 @@ ON DUPLICATE KEY UPDATE
   if (done) {
     await db.insert(syncLogs).values({ syncType: "excel-customers", status: "success", recordsProcessed: cumulativeSuccess });
     await completeJob(db, jobId, cumulativeSuccess, cumulativeError, { processed: cumulativeSuccess, errorCount: cumulativeError });
+    // Clear rawData after all customer chunks are done
+    await clearRawData(["customers"]);
+    console.log(`[ChunkedImport] Cleared rawData for customers table`);
   } else {
     await updateJobProgress(db, jobId, cumulativeProcessed, cumulativeSuccess, cumulativeError, totalRows);
   }
@@ -441,6 +445,9 @@ export async function importOrdersChunk(jsonUrl: string, jobId: number, offset: 
   if (done) {
     await db.insert(syncLogs).values({ syncType: "excel-orders", status: "success", recordsProcessed: cumulativeSuccess });
     await completeJob(db, jobId, cumulativeSuccess, cumulativeError, { processed: cumulativeSuccess, errorCount: cumulativeError });
+    // Clear rawData after all order chunks are done
+    await clearRawData(["orders"]);
+    console.log(`[ChunkedImport] Cleared rawData for orders table`);
   } else {
     await updateJobProgress(db, jobId, cumulativeProcessed, cumulativeSuccess, cumulativeError, totalRows);
   }
@@ -491,6 +498,9 @@ export async function importProductsChunk(jsonUrl: string, jobId: number, offset
   if (done) {
     await db.insert(syncLogs).values({ syncType: "excel-products", status: "success", recordsProcessed: cumulativeSuccess });
     await completeJob(db, jobId, cumulativeSuccess, cumulativeError, { processed: cumulativeSuccess, errorCount: cumulativeError });
+    // Clear rawData after all product chunks are done
+    await clearRawData(["products"]);
+    console.log(`[ChunkedImport] Cleared rawData for products table`);
   } else {
     await updateJobProgress(db, jobId, cumulativeProcessed, cumulativeSuccess, cumulativeError, totalRows);
   }
@@ -542,6 +552,9 @@ export async function importLogisticsChunk(jsonUrl: string, jobId: number, offse
   if (done) {
     await db.insert(syncLogs).values({ syncType: "excel-logistics", status: "success", recordsProcessed: cumulativeSuccess });
     await completeJob(db, jobId, cumulativeSuccess, cumulativeError, { processed: cumulativeSuccess, errorCount: cumulativeError });
+    // Clear rawData after all logistics chunks are done (orders table)
+    await clearRawData(["orders"]);
+    console.log(`[ChunkedImport] Cleared rawData for orders table (logistics)`);
   } else {
     await updateJobProgress(db, jobId, cumulativeProcessed, cumulativeSuccess, cumulativeError, totalRows);
   }

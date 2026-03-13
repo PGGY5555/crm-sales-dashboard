@@ -6,6 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { customers, orders, syncLogs } from "../drizzle/schema";
 import { ShopnexAPI } from "./shopnex";
+import { clearRawData } from "./clearRawData";
 
 const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
@@ -189,6 +190,10 @@ export async function syncFromShopnex(apiToken: string, appName: string): Promis
         completedAt: new Date(),
       })
       .where(eq(syncLogs.id, Number(logId)));
+
+    // Clear rawData after successful sync - structured fields already extracted
+    const { cleared } = await clearRawData(["customers", "orders"]);
+    console.log(`[Sync] Cleared rawData: customers=${cleared.customers ?? 0}, orders=${cleared.orders ?? 0}`);
 
     console.log(`[Sync] Complete. Customers: ${customersProcessed}, Orders: ${ordersProcessed}`);
     return { success: true, customersProcessed, ordersProcessed };

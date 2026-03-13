@@ -10,6 +10,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
 import { classifyCustomer, calculateRepurchaseDays } from "./sync";
+import { clearRawData } from "./clearRawData";
 
 // ===== Column Mappings =====
 
@@ -511,6 +512,10 @@ ON DUPLICATE KEY UPDATE
       await completeJob(db, jobId, processed, errorCount, { processed, errorCount });
     }
 
+    // Clear rawData after successful customer import
+    await clearRawData(["customers"]);
+    console.log(`[ExcelImport] Cleared rawData for customers table`);
+
     return { success: true, processed };
   } catch (error: any) {
     console.error("[ExcelImport] Customer import failed:", error);
@@ -700,6 +705,10 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
       await completeJob(db, jobId, ordersProcessed, errorCount, { ordersProcessed, itemsProcessed, errorCount });
     }
 
+    // Clear rawData after successful order import
+    await clearRawData(["orders"]);
+    console.log(`[ExcelImport] Cleared rawData for orders table`);
+
     return { success: true, ordersProcessed, itemsProcessed };
   } catch (error: any) {
     console.error("[ExcelImport] Order import failed:", error);
@@ -812,6 +821,10 @@ export async function importProductsFromExcel(buffer: Buffer, jobId?: number): P
     if (jobId) {
       await completeJob(db, jobId, processed, errorCount, { processed, errorCount });
     }
+
+    // Clear rawData after successful product import
+    await clearRawData(["products"]);
+    console.log(`[ExcelImport] Cleared rawData for products table`);
 
     return { success: true, processed };
   } catch (error: any) {

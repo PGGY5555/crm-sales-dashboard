@@ -181,3 +181,9 @@
 - [x] 移除 xlsx 套件依賴
 - [x] 更新 SECURITY_AUDIT.md 報告
 - [x] 設定 CI 自動化 pnpm audit 檢查（pnpm audit:ci）
+- [x] rawData 即時清除：sync.ts 同步完成後清除 rawData
+- [x] rawData 即時清除：excelImport.ts 匯入完成後清除 rawData
+- [x] rawData 即時清除：excelImportChunked.ts 匯入完成後清除 rawData
+- [x] rawData 即時清除：batchImport.ts 匯入完成後清除 rawData
+- [x] rawData 即時清除：撰寫測試驗證清除邏輯
+- [x] rawData 即時清除：清除歷史 rawData（customers/orders/products 三張表均已清除）

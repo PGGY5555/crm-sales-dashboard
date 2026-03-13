@@ -1,0 +1,22 @@
+{
+  "query": "SELECT 'customers' AS tbl, COUNT(*) AS cnt FROM customers WHERE rawData IS NOT NULL UNION ALL SELECT 'orders', COUNT(*) FROM orders WHERE rawData IS NOT NULL UNION ALL SELECT 'products', COUNT(*) FROM products WHERE rawData IS NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user VDyW8BBNx15QJxW.root --database DN8ihETPKNPmGxAqBwYu7X --execute SELECT 'customers' AS tbl, COUNT(*) AS cnt FROM customers WHERE rawData IS NOT NULL UNION ALL SELECT 'orders', COUNT(*) FROM orders WHERE rawData IS NOT NULL UNION ALL SELECT 'products', COUNT(*) FROM products WHERE rawData IS NOT NULL;",
+  "rows": [
+    {
+      "tbl": "products",
+      "cnt": "0"
+    },
+    {
+      "tbl": "orders",
+      "cnt": "0"
+    },
+    {
+      "tbl": "customers",
+      "cnt": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "tbl\tcnt\nproducts\t0\norders\t0\ncustomers\t0\n",
+  "stderr": "",
+  "execution_time_ms": 1815
+}

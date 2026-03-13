@@ -179,6 +179,8 @@
 | 2026-03-13 | P2：升級 axios 1.12.2 → 1.13.6 | package.json |
 | 2026-03-13 | P2：升級 @aws-sdk 3.907.0 → 3.1008.0 | package.json |
 | 2026-03-13 | P2：遷移 xlsx → ExcelJS 4.4.0 | 6 個檔案（server + client） |
+| 2026-03-13 | P1：rawData 即時清除機制 | sync.ts, excelImport.ts, excelImportChunked.ts, batchImport.ts |
+| 2026-03-13 | 清除歷史 rawData | customers/orders/products 三張表全部清除 |
 
 ---
 
@@ -186,17 +188,18 @@
 
 所有修復均通過完整測試套件驗證：
 
-- **14 個測試檔案全部通過**
-- **203 項測試全部通過**
+- **15 個測試檔案全部通過**
+- **207 項測試全部通過**
 - 包含 14 項專門的安全測試（SQL 注入防護、Rate Limiting、Helmet Headers 等）
 - 包含 32 項 Excel 匯入測試（已遷移至 ExcelJS）
+- 包含 4 項 rawData 清除測試
 
 ---
 
 ## 七、後續建議
 
 1. **P3 匯出 API 優化**：將 100,000 筆的一次性查詢改為串流下載或分頁匯出，降低記憶體壓力
-2. **定期執行 npm audit**：建議在 CI/CD 流程中加入 `pnpm audit --audit-level=high` 檢查
+2. **定期執行 npm audit**：已設定 `pnpm audit:ci` 腳本，建議在 CI/CD 流程中加入
 3. **CSP Header**：目前因開發環境相容性暫時關閉 Content-Security-Policy，正式上線建議開啟
 4. **金鑰輪換機制**：API Token 的 AES 加密金鑰衍生自 JWT_SECRET，建議建立定期輪換機制
 5. **異常行為警報**：目前有完整的操作日誌（audit log），但缺少異常行為的主動通知機制（如大量匯出、頻繁刪除等）
