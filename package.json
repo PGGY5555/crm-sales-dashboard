@@ -13,8 +13,8 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.693.0",
-    "@aws-sdk/s3-request-presigner": "^3.693.0",
+    "@aws-sdk/client-s3": "^3.1008.0",
+    "@aws-sdk/s3-request-presigner": "^3.1008.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -46,7 +46,7 @@
     "@trpc/client": "^11.6.0",
     "@trpc/react-query": "^11.6.0",
     "@trpc/server": "^11.6.0",
-    "axios": "^1.12.0",
+    "axios": "^1.13.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
