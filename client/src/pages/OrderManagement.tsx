@@ -586,11 +586,11 @@ export default function OrderManagement() {
                         )}
                         <TableCell className="font-mono text-sm">{o.externalId || "-"}</TableCell>
                         <TableCell>
-                          <Link href={`/order-detail/${o.id}`}>
+                          <a href={`/order-detail/${o.id}`} target="_blank" rel="noopener noreferrer">
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
                               <Eye className="w-4 h-4" />
                             </Button>
-                          </Link>
+                          </a>
                         </TableCell>
                         <TableCell className="text-sm">{o.orderDate ? new Date(o.orderDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
                         <TableCell className="font-medium">{o.customerName || "-"}</TableCell>

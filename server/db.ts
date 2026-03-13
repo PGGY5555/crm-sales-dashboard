@@ -882,7 +882,7 @@ export interface CustomerManagementFilters {
   registeredTo?: Date;
   birthdayMonth?: number; // 1-12
   tags?: string; // comma-separated
-  memberLevel?: string;
+  memberLevel?: string | string[];
   creditsOp?: "lt" | "gt" | "eq";
   creditsValue?: number;
   totalSpentOp?: "lt" | "gt" | "eq";
@@ -945,7 +945,13 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
   }
 
   if (filters.memberLevel) {
-    conditions.push(eq(customers.memberLevel, filters.memberLevel));
+    if (Array.isArray(filters.memberLevel)) {
+      if (filters.memberLevel.length > 0) {
+        conditions.push(inArray(customers.memberLevel, filters.memberLevel));
+      }
+    } else {
+      conditions.push(eq(customers.memberLevel, filters.memberLevel));
+    }
   }
 
   if (filters.creditsOp && filters.creditsValue !== undefined) {

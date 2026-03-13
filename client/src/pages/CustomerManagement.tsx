@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, ExternalLink, RefreshCw, Facebook } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, ChevronDown, Filter, X, Trash2, ExternalLink, RefreshCw, Facebook, Check } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -60,7 +60,7 @@ export default function CustomerManagement() {
   const [registeredTo, setRegisteredTo] = useState("");
   const [birthdayMonth, setBirthdayMonth] = useState<string>("");
   const [tags, setTags] = useState("");
-  const [memberLevel, setMemberLevel] = useState("");
+  const [memberLevel, setMemberLevel] = useState<string[]>([]);
   const [creditsOp, setCreditsOp] = useState("");
   const [creditsValue, setCreditsValue] = useState("");
   const [totalSpentOp, setTotalSpentOp] = useState("");
@@ -125,7 +125,7 @@ export default function CustomerManagement() {
     if (registeredTo) f.registeredTo = new Date(registeredTo + "T23:59:59");
     if (birthdayMonth) f.birthdayMonth = parseInt(birthdayMonth);
     if (tags.trim()) f.tags = tags.trim();
-    if (memberLevel) f.memberLevel = memberLevel;
+    if (memberLevel.length > 0) f.memberLevel = memberLevel;
     if (creditsOp && creditsValue) { f.creditsOp = creditsOp; f.creditsValue = parseFloat(creditsValue); }
     if (totalSpentOp && totalSpentValue) { f.totalSpentOp = totalSpentOp; f.totalSpentValue = parseFloat(totalSpentValue); }
     if (totalOrdersOp && totalOrdersValue) { f.totalOrdersOp = totalOrdersOp; f.totalOrdersValue = parseInt(totalOrdersValue); }
@@ -190,7 +190,7 @@ export default function CustomerManagement() {
     if (registeredTo) filters.registeredTo = new Date(registeredTo + "T23:59:59");
     if (birthdayMonth) filters.birthdayMonth = parseInt(birthdayMonth);
     if (tags.trim()) filters.tags = tags.trim();
-    if (memberLevel) filters.memberLevel = memberLevel;
+    if (memberLevel.length > 0) filters.memberLevel = memberLevel;
     if (creditsOp && creditsValue) { filters.creditsOp = creditsOp; filters.creditsValue = parseFloat(creditsValue); }
     if (totalSpentOp && totalSpentValue) { filters.totalSpentOp = totalSpentOp; filters.totalSpentValue = parseFloat(totalSpentValue); }
     if (totalOrdersOp && totalOrdersValue) { filters.totalOrdersOp = totalOrdersOp; filters.totalOrdersValue = parseInt(totalOrdersValue); }
@@ -219,7 +219,7 @@ export default function CustomerManagement() {
     setRegisteredTo("");
     setBirthdayMonth("");
     setTags("");
-    setMemberLevel("");
+    setMemberLevel([]);
     setCreditsOp("");
     setCreditsValue("");
     setTotalSpentOp("");
@@ -437,7 +437,7 @@ export default function CustomerManagement() {
   };
 
   const activeFilterCount = [
-    registeredFrom, registeredTo, birthdayMonth, tags, memberLevel,
+    registeredFrom, registeredTo, birthdayMonth, tags, memberLevel.length > 0,
     creditsOp && creditsValue, totalSpentOp && totalSpentValue,
     totalOrdersOp && totalOrdersValue, lastPurchaseFrom, lastPurchaseTo,
     lastPurchaseAmountOp && lastPurchaseAmountValue, lastShipmentFrom, lastShipmentTo,
@@ -742,13 +742,34 @@ export default function CustomerManagement() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">會員等級</label>
-                <Select value={memberLevel} onValueChange={v => { setMemberLevel(v === "_clear" ? "" : v); setPage(0); }}>
-                  <SelectTrigger><SelectValue placeholder="選擇等級" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_clear">全部</SelectItem>
-                    {(memberLevels || []).map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Button variant="outline" className="w-full justify-between text-sm font-normal h-9" onClick={() => {
+                    const el = document.getElementById('memberLevelDropdown');
+                    if (el) el.classList.toggle('hidden');
+                  }}>
+                    {memberLevel.length === 0 ? "選擇等級" : `已選 ${memberLevel.length} 項`}
+                    <ChevronDown className="w-4 h-4 ml-2 opacity-50" />
+                  </Button>
+                  <div id="memberLevelDropdown" className="hidden absolute z-50 mt-1 w-full bg-popover text-popover-foreground border rounded-md shadow-md max-h-60 overflow-y-auto p-1">
+                    <div className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-accent rounded-sm" onClick={() => { setMemberLevel([]); setPage(0); }}>
+                      <div className={`w-4 h-4 border rounded flex items-center justify-center ${memberLevel.length === 0 ? 'bg-primary border-primary' : 'border-input'}`}>
+                        {memberLevel.length === 0 && <Check className="w-3 h-3 text-primary-foreground" />}
+                      </div>
+                      全部
+                    </div>
+                    {(memberLevels || []).map(l => (
+                      <div key={l} className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-accent rounded-sm" onClick={() => {
+                        setMemberLevel(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l]);
+                        setPage(0);
+                      }}>
+                        <div className={`w-4 h-4 border rounded flex items-center justify-center ${memberLevel.includes(l) ? 'bg-primary border-primary' : 'border-input'}`}>
+                          {memberLevel.includes(l) && <Check className="w-3 h-3 text-primary-foreground" />}
+                        </div>
+                        {l}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">顧客標籤</label>
@@ -956,10 +977,10 @@ export default function CustomerManagement() {
                       </TableCell>
                       <TableCell className="text-sm">{c.registeredAt ? new Date(c.registeredAt).toLocaleDateString("zh-TW") : "-"}</TableCell>
                       <TableCell className="font-medium">
-                        <Link href={`/customer/${c.id}`} className="text-primary hover:underline inline-flex items-center gap-1">
+                        <a href={`/customer/${c.id}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
                           {c.name || "-"}
                           <ExternalLink className="w-3 h-3" />
-                        </Link>
+                        </a>
                       </TableCell>
                       <TableCell className="text-sm">{c.email || "-"}</TableCell>
                       <TableCell className="text-sm">{c.phone || "-"}</TableCell>
