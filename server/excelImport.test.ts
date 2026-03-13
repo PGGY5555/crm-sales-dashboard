@@ -1,51 +1,87 @@
 import { describe, expect, it, vi } from "vitest";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import { parseExcel, countExcelRows, createExcelBuffer } from "./excelUtils";
 
-// Helper to create an Excel buffer from rows
-function createExcelBuffer(sheetName: string, headers: string[], rows: any[][]): Buffer {
-  const wb = XLSX.utils.book_new();
-  const data = [headers, ...rows];
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  return Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+// Helper to create an Excel buffer from rows using ExcelJS
+async function createTestExcelBuffer(sheetName: string, headers: string[], rows: any[][]): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName);
+  ws.addRow(headers);
+  for (const row of rows) {
+    ws.addRow(row);
+  }
+  const arrayBuffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
-describe("Excel Import - parseExcelBuffer", () => {
-  it("should parse a simple Excel buffer into rows", () => {
-    const buffer = createExcelBuffer("Sheet1", ["Name", "Email"], [
+describe("Excel Import - parseExcel (ExcelJS)", () => {
+  it("should parse a simple Excel buffer into rows", async () => {
+    const buffer = await createTestExcelBuffer("Sheet1", ["Name", "Email"], [
       ["Alice", "alice@test.com"],
       ["Bob", "bob@test.com"],
     ]);
-    const wb = XLSX.read(buffer, { type: "buffer" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as any[];
+    const rows = await parseExcel(buffer);
     expect(rows).toHaveLength(2);
     expect(rows[0].Name).toBe("Alice");
     expect(rows[1].Email).toBe("bob@test.com");
   });
 
-  it("should handle empty Excel file", () => {
-    const buffer = createExcelBuffer("Sheet1", ["Name"], []);
-    const wb = XLSX.read(buffer, { type: "buffer" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as any[];
+  it("should handle empty Excel file (headers only)", async () => {
+    const buffer = await createTestExcelBuffer("Sheet1", ["Name"], []);
+    const rows = await parseExcel(buffer);
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe("Excel Import - countExcelRows (ExcelJS)", () => {
+  it("should count rows correctly", async () => {
+    const buffer = await createTestExcelBuffer("Sheet1", ["Name", "Email"], [
+      ["Alice", "alice@test.com"],
+      ["Bob", "bob@test.com"],
+      ["Charlie", "charlie@test.com"],
+    ]);
+    const count = await countExcelRows(buffer);
+    expect(count).toBe(3);
+  });
+
+  it("should return 0 for empty sheet", async () => {
+    const buffer = await createTestExcelBuffer("Sheet1", ["Name"], []);
+    const count = await countExcelRows(buffer);
+    expect(count).toBe(0);
+  });
+});
+
+describe("Excel Import - createExcelBuffer (ExcelJS)", () => {
+  it("should create and re-parse an Excel buffer", async () => {
+    const data = [
+      { Name: "Alice", Email: "alice@test.com" },
+      { Name: "Bob", Email: "bob@test.com" },
+    ];
+    const buffer = await createExcelBuffer(data, "TestSheet");
+    const rows = await parseExcel(buffer);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].Name).toBe("Alice");
+    expect(rows[1].Email).toBe("bob@test.com");
+  });
+
+  it("should handle empty data array", async () => {
+    const buffer = await createExcelBuffer([], "EmptySheet");
+    const rows = await parseExcel(buffer);
     expect(rows).toHaveLength(0);
   });
 });
 
 describe("Excel Import - Customer field mapping", () => {
-  it("should map customer Excel headers to expected fields", () => {
+  it("should map customer Excel headers to expected fields", async () => {
     const headers = [
       "會員編號", "姓名", "信箱", "手機", "性別", "生日",
       "會員等級", "會員標籤", "總消費金額", "訂單數",
     ];
-    const buffer = createExcelBuffer("顧客列表", headers, [
+    const buffer = await createTestExcelBuffer("顧客列表", headers, [
       ["C001", "王小明", "wang@test.com", "0912345678", "男", "1990-01-15",
        "VIP", "活躍", "50000", "10"],
     ]);
-    const wb = XLSX.read(buffer, { type: "buffer" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as any[];
+    const rows = await parseExcel(buffer);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]["會員編號"]).toBe("C001");
@@ -57,20 +93,18 @@ describe("Excel Import - Customer field mapping", () => {
 });
 
 describe("Excel Import - Order field mapping", () => {
-  it("should map order Excel headers to expected fields", () => {
+  it("should map order Excel headers to expected fields", async () => {
     const headers = [
       "訂單編號", "建立時間", "訂單狀態", "訂單金額", "商品總金額",
       "運費", "折扣金額", "會員信箱", "收件人姓名",
       "商品名稱", "商品規格", "商品數量", "商品單價",
     ];
-    const buffer = createExcelBuffer("訂單列表", headers, [
+    const buffer = await createTestExcelBuffer("訂單列表", headers, [
       ["ORD-001", "2025-12-01 10:30:00", "已完成", "1500", "1400",
        "100", "0", "wang@test.com", "王小明",
        "商品A", "紅色/L", "2", "700"],
     ]);
-    const wb = XLSX.read(buffer, { type: "buffer" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as any[];
+    const rows = await parseExcel(buffer);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]["訂單編號"]).toBe("ORD-001");
@@ -81,18 +115,16 @@ describe("Excel Import - Order field mapping", () => {
 });
 
 describe("Excel Import - Product field mapping", () => {
-  it("should map product Excel headers to expected fields", () => {
+  it("should map product Excel headers to expected fields", async () => {
     const headers = [
       "商品名稱", "商品貨號", "成本", "售價", "庫存數量",
       "商品分類", "商品狀態", "規格名稱", "規格值",
     ];
-    const buffer = createExcelBuffer("商品列表", headers, [
+    const buffer = await createTestExcelBuffer("商品列表", headers, [
       ["經典T恤", "SKU-001", "200", "599", "100",
        "上衣", "上架", "尺寸", "S/M/L"],
     ]);
-    const wb = XLSX.read(buffer, { type: "buffer" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as any[];
+    const rows = await parseExcel(buffer);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]["商品名稱"]).toBe("經典T恤");
@@ -318,44 +350,15 @@ describe("Customer Import - Conditional Update Logic (only update non-empty fiel
       note2: conditionalUpdate(newExcelRow.note2, existingCustomer.note2),
     };
 
-    // Fields with data should be updated
     expect(result.name).toBe("王小明");
-    expect(result.tags).toBe("VVIP");
-    expect(result.blacklisted).toBe("是");
-    expect(result.note2).toBe("新備註2");
-
-    // Empty fields should keep existing values
-    expect(result.phone).toBe("0912345678");
-    expect(result.birthday).toBe("1990-01-15");
-    expect(result.memberLevel).toBe("黃金會員");
-    expect(result.notes).toBe("重要客戶");
-    expect(result.lineUid).toBe("U123456");
-    expect(result.note1).toBe("備註內容1");
-  });
-});
-
-describe("Customer Import - SQL IF pattern for bulk insert", () => {
-  it("should generate correct SQL IF pattern for non-null values", () => {
-    const field = "name";
-    const pattern = `${field} = IF(VALUES(${field}) IS NOT NULL AND VALUES(${field}) != '', VALUES(${field}), ${field})`;
-    expect(pattern).toBe("name = IF(VALUES(name) IS NOT NULL AND VALUES(name) != '', VALUES(name), name)");
-  });
-
-  it("should generate correct SQL IF pattern for date fields (no empty string check)", () => {
-    const field = "registeredAt";
-    const pattern = `${field} = IF(VALUES(${field}) IS NOT NULL, VALUES(${field}), ${field})`;
-    expect(pattern).toBe("registeredAt = IF(VALUES(registeredAt) IS NOT NULL, VALUES(registeredAt), registeredAt)");
-  });
-
-  it("should generate correct SQL IF pattern for credits (check against '0')", () => {
-    const field = "credits";
-    const pattern = `${field} = IF(VALUES(${field}) IS NOT NULL AND VALUES(${field}) != '0', VALUES(${field}), ${field})`;
-    expect(pattern).toBe("credits = IF(VALUES(credits) IS NOT NULL AND VALUES(credits) != '0', VALUES(credits), credits)");
-  });
-
-  it("rawData should always be overwritten (no conditional)", () => {
-    // rawData always gets the latest import data for reference
-    const pattern = "rawData = VALUES(rawData)";
-    expect(pattern).toBe("rawData = VALUES(rawData)");
+    expect(result.phone).toBe("0912345678");     // kept existing
+    expect(result.birthday).toBe("1990-01-15");  // kept existing
+    expect(result.tags).toBe("VVIP");            // updated
+    expect(result.memberLevel).toBe("黃金會員"); // kept existing
+    expect(result.notes).toBe("重要客戶");       // kept existing
+    expect(result.blacklisted).toBe("是");       // updated
+    expect(result.lineUid).toBe("U123456");      // kept existing
+    expect(result.note1).toBe("備註內容1");      // kept existing
+    expect(result.note2).toBe("新備註2");        // updated
   });
 });

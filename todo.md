@@ -172,3 +172,12 @@
 - [x] 資安補查：執行 npm audit 檢查第三方套件漏洞（35 個漏洞，多數為間接依賴/開發工具）
 - [x] 套件升級：升級 axios 1.12.2 → 1.13.6，修復 DoS 漏洞
 - [x] 套件升級：升級 @aws-sdk 3.907.0 → 3.1008.0，fast-xml-parser 5.2.5 → 5.4.1，修復 critical + high 漏洞
+- [x] 遷移：後端 excelImport.ts xlsx → ExcelJS
+- [x] 遷移：後端 excelImportChunked.ts xlsx → ExcelJS
+- [x] 遷移：前端 Sync.tsx xlsx → ExcelJS
+- [x] 遷移：前端 CustomerManagement.tsx 匯出 xlsx → ExcelJS
+- [x] 遷移：前端 OrderManagement.tsx 匯出 xlsx → ExcelJS
+- [x] 遷移：測試 excelImport.test.ts xlsx → ExcelJS
+- [x] 移除 xlsx 套件依賴
+- [x] 更新 SECURITY_AUDIT.md 報告
+- [x] 設定 CI 自動化 pnpm audit 檢查（pnpm audit:ci）

@@ -6,7 +6,7 @@
  * 
  * This avoids re-downloading and re-parsing the full Excel file on every chunk call.
  */
-import * as XLSX from "xlsx";
+import { parseExcel as parseExcelAsync } from "./excelUtils";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
@@ -142,11 +142,8 @@ export async function parseAndStoreJson(
 
   console.log(`[Import Phase1] Job ${jobId}: Downloaded in ${Date.now() - startTime}ms, parsing...`);
 
-  // Parse Excel
-  const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) throw new Error("Excel 檔案沒有工作表");
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+  // Parse Excel using ExcelJS
+  const rows = await parseExcelAsync(fileBuffer);
 
   console.log(`[Import Phase1] Job ${jobId}: Parsed ${rows.length} rows in ${Date.now() - startTime}ms`);
 

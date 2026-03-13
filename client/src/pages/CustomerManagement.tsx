@@ -12,7 +12,7 @@ import { Search, Download, ChevronLeft, ChevronRight, ChevronDown, Filter, X, Tr
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import * as XLSX from "xlsx";
+import { exportToExcelFile } from "@/lib/excelUtils";
 import { usePermissions } from "@/hooks/usePermissions";
 
 const SEARCH_FIELDS = [
@@ -401,10 +401,7 @@ export default function CustomerManagement() {
       "黑名單": c.blacklisted || "否",
       "LINE UID": c.lineUid || "",
     }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "客戶資料");
-    XLSX.writeFile(wb, `客戶資料_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    exportToExcelFile(rows, `客戶資料_${new Date().toISOString().slice(0, 10)}.xlsx`, "客戶資料");
   };
 
   const handleBatchDelete = () => {

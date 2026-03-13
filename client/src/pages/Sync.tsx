@@ -25,7 +25,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Progress } from "@/components/ui/progress";
-import * as XLSX from "xlsx";
+import { parseExcelFile } from "@/lib/excelUtils";
 
 type ExcelFileType = "customers" | "orders" | "products" | "logistics";
 
@@ -332,11 +332,7 @@ export default function Sync() {
 
     try {
       // STEP 1: Parse Excel in browser
-      const arrayBuffer = await state.file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
-      const sheetName = workbook.SheetNames[0];
-      if (!sheetName) throw new Error("Excel 檔案沒有工作表");
-      const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" }) as any[];
+      const rawRows = await parseExcelFile(state.file) as any[];
 
       // For orders, group by order number
       let processedData: any[];

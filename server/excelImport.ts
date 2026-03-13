@@ -5,7 +5,7 @@
  * Supports background job mode with TRUE batch writes and progress tracking for large imports.
  * Uses bulk INSERT ... ON DUPLICATE KEY UPDATE for 10-50x faster imports.
  */
-import * as XLSX from "xlsx";
+import { parseExcel as parseExcelAsync, countExcelRows as countExcelRowsAsync } from "./excelUtils";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
@@ -102,15 +102,7 @@ interface ProductRow {
   "商品簡述"?: string;
 }
 
-// ===== Parse Excel Buffer =====
-
-function parseExcel<T>(buffer: Buffer): T[] {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return [];
-  const sheet = workbook.Sheets[sheetName];
-  return XLSX.utils.sheet_to_json<T>(sheet, { defval: "" });
-}
+// ===== Parse Excel Buffer (async wrapper using ExcelJS) =====
 
 // ===== Parse date string from Excel =====
 
@@ -302,14 +294,9 @@ export async function getActiveImportJobs() {
   return jobs;
 }
 
-// ===== Parse rows count from buffer =====
-export function countExcelRows(buffer: Buffer): number {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return 0;
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-  return rows.length;
+// ===== Parse rows count from buffer (async using ExcelJS) =====
+export async function countExcelRows(buffer: Buffer): Promise<number> {
+  return countExcelRowsAsync(buffer);
 }
 
 // ===== Import Customers from Excel (Bulk INSERT Mode) =====
@@ -329,7 +316,7 @@ export async function importCustomersFromExcel(buffer: Buffer, jobId?: number): 
   const logId = logResult.insertId;
 
   try {
-    const rows = parseExcel<CustomerRow>(buffer);
+    const rows = await parseExcelAsync<CustomerRow>(buffer);
     let processed = 0;
     let errorCount = 0;
 
@@ -558,7 +545,7 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
   const logId = logResult.insertId;
 
   try {
-    const rows = parseExcel<OrderRow>(buffer);
+    const rows = await parseExcelAsync<OrderRow>(buffer);
 
     const orderMap = new Map<string, OrderRow[]>();
     for (const row of rows) {
@@ -746,7 +733,7 @@ export async function importProductsFromExcel(buffer: Buffer, jobId?: number): P
   const logId = logResult.insertId;
 
   try {
-    const rows = parseExcel<ProductRow>(buffer);
+    const rows = await parseExcelAsync<ProductRow>(buffer);
     let processed = 0;
     let errorCount = 0;
     let currentProductName = "";
@@ -951,11 +938,7 @@ export async function importLogisticsExcel(buffer: Buffer, jobId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) throw new Error("Excel 檔案中沒有工作表");
-
-  const rows = XLSX.utils.sheet_to_json<LogisticsRow>(workbook.Sheets[sheetName]);
+  const rows = await parseExcelAsync<LogisticsRow>(buffer);
   if (rows.length === 0) throw new Error("Excel 檔案中沒有資料");
 
   let matched = 0;

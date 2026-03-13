@@ -11,7 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, Eye } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import * as XLSX from "xlsx";
+import { exportToExcelFile } from "@/lib/excelUtils";
 import { usePermissions } from "@/hooks/usePermissions";
 
 const SEARCH_FIELDS = [
@@ -233,10 +233,7 @@ export default function OrderManagement() {
       "LINE UID": (o as any).customerLineUid || "",
       "黑名單": (o as any).customerBlacklisted || "",
     }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "訂單資料");
-    XLSX.writeFile(wb, `訂單資料_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    exportToExcelFile(rows, `訂單資料_${new Date().toISOString().slice(0, 10)}.xlsx`, "訂單資料");
   };
 
   const handleBatchDelete = () => {
