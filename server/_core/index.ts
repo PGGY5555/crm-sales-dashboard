@@ -597,6 +597,92 @@ async function startServer() {
     }
   });
 
+  // ─── 外部系統串接 API ──────────────────────────────────────────────────────
+
+  /**
+   * POST /api/v1/customers/upsert
+   * 供外部系統（如八字命理系統）同步客戶資料到 CRM
+   *
+   * 驗證方式：Header X-Api-Key: <CRM_API_KEY>
+   * Body: { externalId, name?, phone?, email?, gender?, lineUid?, registeredAt?, source? }
+   *
+   * externalId 為唯一識別碼（如 bazi_member_123），存在則更新，不存在則建立
+   */
+  app.post("/api/v1/customers/upsert", async (req: express.Request, res: express.Response) => {
+    // API Key 驗證
+    const apiKey = process.env.CRM_API_KEY;
+    if (apiKey && req.headers["x-api-key"] !== apiKey) {
+      res.status(401).json({ success: false, error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const { externalId, name, phone, email, gender, lineUid, registeredAt, source } = req.body;
+
+      if (!externalId) {
+        res.status(400).json({ success: false, error: "externalId is required" });
+        return;
+      }
+
+      const db = await getDb();
+      if (!db) {
+        res.status(503).json({ success: false, error: "Database unavailable" });
+        return;
+      }
+
+      const { customers } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+
+      // 查找是否已存在
+      const [existing] = await db
+        .select({ id: customers.id })
+        .from(customers)
+        .where(eq(customers.externalId, externalId))
+        .limit(1);
+
+      const now = new Date();
+      const regAt = registeredAt ? new Date(registeredAt) : now;
+
+      if (existing) {
+        // 更新現有客戶
+        const updateData: Record<string, any> = {};
+        if (name !== undefined) updateData.name = name;
+        if (phone !== undefined) updateData.phone = phone;
+        if (email !== undefined) updateData.email = email;
+        if (gender !== undefined) updateData.gender = gender;
+        if (lineUid !== undefined) updateData.lineUid = lineUid;
+        if (source !== undefined) updateData.custom1 = source;
+
+        if (Object.keys(updateData).length > 0) {
+          await db.update(customers).set(updateData).where(eq(customers.id, existing.id));
+        }
+
+        console.log(`[CRM Upsert] Updated customer externalId=${externalId} id=${existing.id}`);
+        res.json({ success: true, action: "updated", id: existing.id });
+      } else {
+        // 建立新客戶
+        const [result] = await db.insert(customers).values({
+          externalId,
+          name: name ?? null,
+          phone: phone ?? null,
+          email: email ?? null,
+          gender: gender ?? null,
+          lineUid: lineUid ?? null,
+          registeredAt: regAt,
+          custom1: source ?? "bazi_system",
+          lifecycle: "O",
+        });
+        const newId = (result as any).insertId ?? 0;
+
+        console.log(`[CRM Upsert] Created customer externalId=${externalId} id=${newId}`);
+        res.json({ success: true, action: "created", id: newId });
+      }
+    } catch (error: any) {
+      console.error("[CRM Upsert] Error:", error);
+      res.status(500).json({ success: false, error: error.message || "Internal server error" });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

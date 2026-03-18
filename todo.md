@@ -187,3 +187,5 @@
 - [x] rawData 即時清除：batchImport.ts 匯入完成後清除 rawData
 - [x] rawData 即時清除：撰寫測試驗證清除邏輯
 - [x] rawData 即時清除：清除歷史 rawData（customers/orders/products 三張表均已清除）
+- [x] 新增外部系統串接 API：POST /api/v1/customers/upsert
+- [ ] 同步更新到 GitHub repo
