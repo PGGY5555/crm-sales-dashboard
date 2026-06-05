@@ -1,0 +1,41 @@
+# Dependencies & build output
+node_modules
+dist
+.pnpm-store
+
+# Environment & secrets (inject via Cloud Run env vars / Secret Manager)
+.env
+.env.*
+
+# Git & IDE
+.git
+.gitignore
+.github
+.vscode
+.cursor
+*.md
+!README.md
+
+# Logs & local tooling
+.manus
+.manus-logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Tests & dev scripts
+**/*.test.ts
+**/*.test.tsx
+vitest.config.ts
+check-jobs.mjs
+scripts/test-db-connection.ts
+
+# Docker (avoid recursive context)
+Dockerfile
+.dockerignore
+
+# Misc
+coverage
+.turbo
+*.tsbuildinfo
+terminals

@@ -89,6 +89,51 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+/** Link a Google account on login, merging pre-created pending users by email. */
+export async function loginWithGoogleUser(profile: {
+  openId: string;
+  email: string | null;
+  name: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  if (profile.email) {
+    const byEmail = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, profile.email))
+      .limit(1);
+
+    if (byEmail.length > 0 && byEmail[0].openId.startsWith("pending_")) {
+      const existing = byEmail[0];
+      const updateSet: Record<string, unknown> = {
+        openId: profile.openId,
+        loginMethod: "google",
+        lastSignedIn: new Date(),
+      };
+      if (profile.name) {
+        updateSet.name = profile.name;
+      }
+      if (profile.openId === ENV.ownerOpenId) {
+        updateSet.role = "admin";
+      }
+      await db.update(users).set(updateSet).where(eq(users.id, existing.id));
+      return;
+    }
+  }
+
+  await upsertUser({
+    openId: profile.openId,
+    email: profile.email,
+    name: profile.name,
+    loginMethod: "google",
+    lastSignedIn: new Date(),
+  });
+}
+
 // ===== User Management & Permissions =====
 
 /** Get all users list */

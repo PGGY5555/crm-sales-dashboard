@@ -1,53 +1,154 @@
+import crypto from "crypto";
+import { OAuth2Client } from "google-auth-library";
+import { parse as parseCookieHeader } from "cookie";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
-import * as db from "../db";
+import { loginWithGoogleUser } from "../db";
 import { getSessionCookieOptions } from "./cookies";
+import { ENV } from "./env";
 import { sdk } from "./sdk";
+
+const OAUTH_STATE_COOKIE = "oauth_state";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
   return typeof value === "string" ? value : undefined;
 }
 
-export function registerOAuthRoutes(app: Express) {
-  app.get("/api/oauth/callback", async (req: Request, res: Response) => {
+function resolveRedirectUri(req: Request): string {
+  // When set, always use the env value — never assemble dynamically (Cloud Run / Google Console must match exactly).
+  if (ENV.googleRedirectUri) {
+    return ENV.googleRedirectUri;
+  }
+
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)
+      ?.split(",")[0]
+      ?.trim() || req.protocol;
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined)
+      ?.split(",")[0]
+      ?.trim() || req.get("host");
+
+  return `${proto}://${host}/api/auth/google/callback`;
+}
+
+function createOAuthClient(req: Request): OAuth2Client {
+  return new OAuth2Client(
+    ENV.googleClientId,
+    ENV.googleClientSecret,
+    resolveRedirectUri(req)
+  );
+}
+
+export function registerAuthRoutes(app: Express) {
+  app.get("/api/auth/google", (req: Request, res: Response) => {
+    if (!ENV.googleClientId || !ENV.googleClientSecret) {
+      res.status(500).json({
+        error: "Google OAuth 未設定，請設定 GOOGLE_CLIENT_ID 與 GOOGLE_CLIENT_SECRET",
+      });
+      return;
+    }
+
+    const state = crypto.randomBytes(32).toString("hex");
+    const oauth2Client = createOAuthClient(req);
+    const authorizeUrl = oauth2Client.generateAuthUrl({
+      access_type: "online",
+      scope: ["openid", "email", "profile"],
+      state,
+      prompt: "select_account",
+    });
+
+    const cookieOptions = getSessionCookieOptions(req);
+    res.cookie(OAUTH_STATE_COOKIE, state, {
+      ...cookieOptions,
+      maxAge: 10 * 60 * 1000,
+    });
+
+    res.redirect(302, authorizeUrl);
+  });
+
+  app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
+    const error = getQueryParam(req, "error");
+    const cookieOptions = getSessionCookieOptions(req);
+
+    res.clearCookie(OAUTH_STATE_COOKIE, { ...cookieOptions, maxAge: -1 });
+
+    if (error) {
+      console.error("[Google OAuth] User denied consent:", error);
+      res.status(400).json({ error: "Google 登入已取消" });
+      return;
+    }
 
     if (!code || !state) {
-      res.status(400).json({ error: "code and state are required" });
+      res.status(400).json({ error: "缺少 code 或 state 參數" });
+      return;
+    }
+
+    const cookies = parseCookieHeader(req.headers.cookie || "");
+    const savedState = cookies[OAUTH_STATE_COOKIE];
+    if (!savedState || savedState !== state) {
+      res.status(400).json({ error: "OAuth state 驗證失敗" });
+      return;
+    }
+
+    if (!ENV.googleClientId || !ENV.googleClientSecret) {
+      res.status(500).json({ error: "Google OAuth 未設定" });
       return;
     }
 
     try {
-      const tokenResponse = await sdk.exchangeCodeForToken(code, state);
-      const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+      const redirectUri = resolveRedirectUri(req);
+      const oauth2Client = createOAuthClient(req);
+      const { tokens } = await oauth2Client.getToken({
+        code,
+        redirect_uri: redirectUri,
+      });
 
-      if (!userInfo.openId) {
-        res.status(400).json({ error: "openId missing from user info" });
+      if (!tokens.id_token) {
+        res.status(400).json({ error: "Google 未回傳 id_token" });
         return;
       }
 
-      await db.upsertUser({
-        openId: userInfo.openId,
-        name: userInfo.name || null,
-        email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-        lastSignedIn: new Date(),
+      const ticket = await oauth2Client.verifyIdToken({
+        idToken: tokens.id_token,
+        audience: ENV.googleClientId,
       });
+      const payload = ticket.getPayload();
 
-      const sessionToken = await sdk.createSessionToken(userInfo.openId, {
-        name: userInfo.name || "",
+      if (!payload?.sub) {
+        res.status(400).json({ error: "無法取得 Google 使用者 ID" });
+        return;
+      }
+
+      const profile = {
+        openId: payload.sub,
+        email: payload.email ?? null,
+        name: payload.name ?? null,
+      };
+
+      await loginWithGoogleUser(profile);
+
+      const sessionToken = await sdk.createSessionToken(profile.openId, {
+        name: profile.name || "",
+        email: profile.email ?? undefined,
         expiresInMs: ONE_YEAR_MS,
       });
 
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
 
       res.redirect(302, "/");
-    } catch (error) {
-      console.error("[OAuth] Callback failed", error);
-      res.status(500).json({ error: "OAuth callback failed" });
+    } catch (err) {
+      console.error("[Google OAuth] Callback failed:", err);
+      res.status(500).json({ error: "Google 登入失敗" });
     }
   });
 }
+
+/** @deprecated Use registerAuthRoutes */
+export const registerOAuthRoutes = registerAuthRoutes;

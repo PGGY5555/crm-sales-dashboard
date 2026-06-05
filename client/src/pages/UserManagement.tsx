@@ -333,7 +333,7 @@ export default function UserManagement() {
       </Card>
 
       <p className="text-sm text-muted-foreground">
-        使用者透過 Manus OAuth 登入後會自動出現在列表中。您也可以點擊「新增使用者」預先建立帳號並設定權限。
+        使用者透過 Google 登入後會自動出現在列表中。您也可以點擊「新增使用者」預先建立帳號並設定權限。
         管理員擁有所有權限，不需另外設定。一般使用者需要透過「權限設定」來開放各功能的存取權限。
       </p>
 
