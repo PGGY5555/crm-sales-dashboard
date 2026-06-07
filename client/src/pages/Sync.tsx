@@ -26,6 +26,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Progress } from "@/components/ui/progress";
 import { parseExcelFile } from "@/lib/excelUtils";
+import { getOrderNumberFromRow, normalizeOrderImportRow } from "@shared/importFieldMapping";
+import { mergeImportStatsHints, type ImportStatsHints } from "@shared/importStats";
 
 type ExcelFileType = "customers" | "orders" | "products" | "logistics";
 
@@ -76,6 +78,13 @@ export default function Sync() {
   const orderFileRef = useRef<HTMLInputElement>(null);
   const productFileRef = useRef<HTMLInputElement>(null);
   const logisticsFileRef = useRef<HTMLInputElement>(null);
+
+  const fileRefByType: Record<ExcelFileType, React.RefObject<HTMLInputElement | null>> = {
+    customers: customerFileRef,
+    orders: orderFileRef,
+    products: productFileRef,
+    logistics: logisticsFileRef,
+  };
 
   // Polling refs for background jobs
   const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval> | null>>({
@@ -134,7 +143,7 @@ export default function Sync() {
   };
 
   // Clear data states
-  const [clearTargets, setClearTargets] = useState<Set<string>>(new Set(["all"]));
+  const [clearTargets, setClearTargets] = useState<Set<string>>(new Set());
   const utils = trpc.useUtils();
 
   const clearMutation = trpc.sync.clearData.useMutation({
@@ -249,14 +258,16 @@ export default function Sync() {
           stopped = true;
           setter(prev => ({
             ...prev,
+            file: data.status === "completed" ? null : prev.file,
             uploading: false,
             jobProgress: data.status === "completed" ? 100 : prev.jobProgress,
             result: data.status === "completed"
               ? { success: true, processed: data.successRows, backgroundJob: true }
               : { success: false, error: data.message || "匯入失敗" },
           }));
-
           if (data.status === "completed") {
+            const fileInput = fileRefByType[fileType].current;
+            if (fileInput) fileInput.value = "";
             toast.success(`${typeLabel}資料匯入完成！成功 ${(data.successRows || 0).toLocaleString()} 筆`);
             refetchStatus();
           } else if (data.status === "failed") {
@@ -291,7 +302,7 @@ export default function Sync() {
 
     // Start processing after a short delay
     setTimeout(processNextChunk, 1000);
-  }, [getStateSetter, refetchStatus]);
+  }, [getStateSetter, refetchStatus, fileRefByType]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -339,10 +350,11 @@ export default function Sync() {
       if (fileType === "orders") {
         const orderMap = new Map<string, any[]>();
         for (const row of rawRows) {
-          const orderNum = String(row["訂單編號"] || "").trim();
+          const normalized = normalizeOrderImportRow(row);
+          const orderNum = getOrderNumberFromRow(normalized);
           if (!orderNum) continue;
           if (!orderMap.has(orderNum)) orderMap.set(orderNum, []);
-          orderMap.get(orderNum)!.push(row);
+          orderMap.get(orderNum)!.push(normalized);
         }
         processedData = Array.from(orderMap.entries()).map(([num, items]) => ({ orderNum: num, items }));
       } else {
@@ -350,6 +362,10 @@ export default function Sync() {
       }
 
       const totalRows = processedData.length;
+      if (totalRows === 0) {
+        throw new Error("檔案中未找到可匯入的資料列，請確認第一列為標題列且下方有資料");
+      }
+
       toast.info(`已解析 ${totalRows.toLocaleString()} 筆${typeLabel}資料，開始匯入...`);
 
       setState(prev => ({
@@ -376,11 +392,17 @@ export default function Sync() {
       let totalSuccess = 0;
       let totalError = 0;
       let totalProcessed = 0;
+      const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
+      let accumulatedStatsHints: ImportStatsHints = {};
 
       for (let offset = 0; offset < totalRows; offset += BATCH_SIZE) {
         const batch = processedData.slice(offset, offset + BATCH_SIZE);
         const batchNum = Math.floor(offset / BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
+
+        setState(prev => ({
+          ...prev,
+          jobDetail: `正在寫入第 ${batchNum}/${totalBatches} 批（共 ${totalRows.toLocaleString()} 筆）...`,
+        }));
 
         let retries = 0;
         const MAX_RETRIES = 3;
@@ -403,6 +425,9 @@ export default function Sync() {
             totalSuccess += data.successRows || 0;
             totalError += data.errorRows || 0;
             totalProcessed = totalSuccess + totalError;
+            if (data.statsHints) {
+              accumulatedStatsHints = mergeImportStatsHints(accumulatedStatsHints, data.statsHints);
+            }
             batchSuccess = true;
 
             const progress = Math.min(Math.round((totalProcessed / totalRows) * 100), 100);
@@ -427,23 +452,63 @@ export default function Sync() {
       }
 
       // STEP 4: Complete
-      try {
-        await fetch("/api/import/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, successRows: totalSuccess, errorRows: totalError }),
-        });
-      } catch {}
+      if (fileType === "orders" || fileType === "customers" || fileType === "logistics") {
+        setState(prev => ({
+          ...prev,
+          jobDetail: "資料寫入完成，正在更新受影響客戶的統計...",
+        }));
+      }
+
+      let statsWarning: string | undefined;
+      let statsError: string | undefined;
+
+      const completeResp = await fetch("/api/import/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId,
+          successRows: totalSuccess,
+          errorRows: totalError,
+          statsHints: accumulatedStatsHints,
+        }),
+      });
+
+      if (!completeResp.ok) {
+        const errData = await completeResp.json().catch(() => ({ error: "完成匯入任務失敗" }));
+        throw new Error(errData.error || "完成匯入任務失敗");
+      }
+
+      const completeData = await completeResp.json().catch(() => ({}));
+      statsWarning = completeData.statsWarning;
+      statsError = completeData.statsError;
+
+      if (totalSuccess === 0 && totalError > 0) {
+        throw new Error(
+          `共 ${totalError.toLocaleString()} 筆資料無法寫入。請確認欄位標題是否正確（顧客列表需包含「顧客名稱/顧客姓名」、「電子信箱」、「電話/手機」至少一項）`,
+        );
+      }
+      if (totalSuccess === 0) {
+        throw new Error("未成功匯入任何資料，請確認檔案格式與欄位標題是否正確");
+      }
 
       setState(prev => ({
         ...prev,
+        file: null,
         uploading: false,
         jobStatus: "completed",
         jobProgress: 100,
         jobDetail: `匯入完成！成功 ${totalSuccess.toLocaleString()} 筆，錯誤 ${totalError.toLocaleString()} 筆`,
-        result: { success: true, processed: totalSuccess, backgroundJob: true },
+        result: { success: true, processed: totalSuccess, errorCount: totalError, backgroundJob: true },
       }));
-      toast.success(`${typeLabel}資料匯入完成！成功 ${totalSuccess.toLocaleString()} 筆`);
+      const fileInput = fileRefByType[fileType].current;
+      if (fileInput) fileInput.value = "";
+      if (statsError) {
+        toast.error(`資料已匯入，但會員統計更新失敗：${statsError}`);
+      } else if (statsWarning) {
+        toast.warning(statsWarning);
+      } else {
+        toast.success(`${typeLabel}資料匯入完成！成功 ${totalSuccess.toLocaleString()} 筆`);
+      }
       refetchStatus();
     } catch (error: any) {
       setState(prev => ({
@@ -563,7 +628,7 @@ export default function Sync() {
                     點擊選擇或拖放 Excel 檔案
                   </p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    支援 .xlsx, .xls, .csv 格式
+                    支援 .xlsx, .csv（.xls 請另存為 .xlsx）
                   </p>
                 </div>
               )}
@@ -687,7 +752,7 @@ export default function Sync() {
             <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-300">
               <FileSpreadsheet className="h-4 w-4 shrink-0" />
               <span>
-                支援大量資料匯入（數萬筆）。檔案會先上傳到雲端儲存，再由伺服器分批處理，您可以即時查看匯入進度。
+                支援大量資料匯入（建議單檔不超過 50MB，約數萬筆）。檔案於本機解析後分批寫入，頁面即時顯示進度；匯入完成後原始檔不保留。
               </span>
             </div>
           </div>
@@ -705,7 +770,7 @@ export default function Sync() {
               "orders",
               <ShoppingCart className="h-5 w-5 text-green-600" />,
               "訂單列表",
-              "匯入訂單資料（訂單編號、金額、商品明細等）",
+              "匯入訂單資料（訂編、顧客 Email、金額、商品明細等）",
               orderUpload,
               orderFileRef,
             )}
@@ -831,13 +896,15 @@ export default function Sync() {
             <CardContent>
               <div className="prose prose-sm max-w-none text-muted-foreground">
                 <ul className="space-y-1.5 list-disc pl-4">
-                  <li>請使用 Shopnex 後台匯出的 Excel 檔案格式</li>
-                  <li><strong className="text-foreground">建議匯入順序</strong>：先匯入顧客列表，再匯入訂單列表，然後匯入商品列表，最後匯入訂單物流檔</li>
-                  <li><strong className="text-foreground">訂單物流檔</strong>：系統會用「PayNow物流單號」比對訂單的「出貨單號碼」，匹配成功後寫入「配送編號」和「物流狀態」</li>
-                  <li>匯入訂單時，系統會自動根據會員信箱關聯對應的顧客，並更新客戶統計數據（總消費、訂單數、生命週期分類等）</li>
-                  <li>重複匯入同一份檔案不會產生重複資料（系統會根據唯一識別碼自動更新）</li>
-                  <li><strong className="text-foreground">大量匯入</strong>：超過 500 筆的檔案會自動切換為背景處理模式，頁面會顯示即時進度條</li>
-                  <li>支援 <strong className="text-foreground">.xlsx</strong>、<strong className="text-foreground">.xls</strong>、<strong className="text-foreground">.csv</strong> 格式</li>
+                  <li><strong className="text-foreground">建議匯入順序</strong>：先匯入顧客列表，再匯入訂單列表，然後匯入商品列表，最後匯入訂單物流檔。若先匯訂單、後匯會員也可以，系統會自動關聯並重算統計</li>
+                  <li><strong className="text-foreground">訂單物流檔</strong>：系統會用「PayNow物流單號」比對訂單的「出貨單號」，匹配成功後寫入「配送編號」和「物流狀態」</li>
+                  <li><strong className="text-foreground">顧客關聯</strong>：顧客以 Email（優先）或手機辨識；匯入訂單後會依信箱／手機關聯顧客，並重算總消費、訂單數、生命週期等（含「已完成」「已出貨」訂單）</li>
+                  <li><strong className="text-foreground">消費統計</strong>：會員檔中的「訂單數」「消費金額」不會匯入，數據一律由訂單匯總計算</li>
+                  <li><strong className="text-foreground">重複匯入</strong>：同一顧客或訂單（訂編）會自動更新，不會重複建立；同一訂單重新匯入時，明細會先清除再寫入</li>
+                  <li><strong className="text-foreground">大量匯入</strong>：檔案於本機解析後分批寫入（每批約 500 筆），全程顯示進度條</li>
+                  <li><strong className="text-foreground">檔案大小</strong>：建議單檔不超過 50MB（約可容納數萬筆；會員約 5～10 萬筆、訂單含 SKU 約 2～5 萬張訂單，視欄位內容而定）。超出時請拆分檔案後分批匯入</li>
+                  <li>支援 <strong className="text-foreground">.xlsx</strong>、<strong className="text-foreground">.csv</strong> 格式（舊版 .xls 請先另存為 .xlsx）</li>
+                  <li><strong className="text-foreground">資料留存</strong>：匯入完成後，上傳的原始檔不保留</li>
                 </ul>
               </div>
             </CardContent>
@@ -855,7 +922,7 @@ export default function Sync() {
                   <CardTitle className="text-base">API 憑證管理</CardTitle>
                 </div>
                 <CardDescription>
-                  API 憑證將以 AES-256 加密後儲存於資料庫中
+                  API 憑證將以 AES-256-CBC 加密後儲存於資料庫，前端僅顯示遮罩值
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1049,11 +1116,13 @@ export default function Sync() {
         <CardContent>
           <div className="prose prose-sm max-w-none text-muted-foreground">
             <ul className="space-y-1.5 list-disc pl-4">
-              <li>API 憑證使用 <strong className="text-foreground">AES-256-CBC</strong> 加密後儲存於資料庫</li>
-              <li>擁有相應權限的使用者可以查看憑證、執行同步和匯入 Excel</li>
+              <li>API 憑證使用 <strong className="text-foreground">AES-256-CBC</strong> 加密後儲存於資料庫，前端僅顯示遮罩值（前 4 後 4 字元）</li>
+              <li>擁有相應權限的使用者才能查看憑證、執行同步和匯入 Excel</li>
               <li>加密金鑰衍生自伺服器端環境變數，不會暴露在前端</li>
-              <li>所有流量經由 <strong className="text-foreground">Cloudflare WAF</strong> 防護</li>
-              <li>Excel 匯入的檔案會暫存於加密雲端儲存空間，處理完成後可安全存取</li>
+              <li>所有匯入／同步 API 需登入驗證並通過細部權限檢查，匯入端點另有請求頻率限制</li>
+              <li>正式環境所有流量經由 <strong className="text-foreground">Cloudflare WAF</strong> 防護</li>
+              <li>Excel 匯入檔案於<strong className="text-foreground">瀏覽器本機</strong>解析後分批寫入，<strong className="text-foreground">匯入完成後立即清除</strong>，不保留於伺服器或雲端儲存</li>
+              <li>寫入資料庫的匯入原始列（rawData）於處理完成後清除，降低個資留存風險</li>
             </ul>
           </div>
         </CardContent>

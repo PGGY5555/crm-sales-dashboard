@@ -17,28 +17,36 @@ import CustomerDetail from "./pages/CustomerDetail";
 import OrderDetail from "./pages/OrderDetail";
 import UserManagement from "./pages/UserManagement";
 import AuditLog from "./pages/AuditLog";
+import TwoFactorLogin from "./pages/TwoFactorLogin";
+import AccountSettings from "./pages/AccountSettings";
 
 function Router() {
   return (
-    <DashboardLayout>
-      <Switch>
-        <Route path={"/"} component={Home} />
-        <Route path={"/trends"} component={Trends} />
-        <Route path={"/funnel"} component={Funnel} />
-        <Route path={"/customers"} component={Customers} />
-        <Route path={"/ai-chat"} component={AIChat} />
-        <Route path={"/sync"} component={Sync} />
-        <Route path={"/customer-management"} component={CustomerManagement} />
-        <Route path={"/order-management"} component={OrderManagement} />
-        <Route path={"/customer/:id"} component={CustomerDetail} />
-        <Route path={"/customer-detail/:id"} component={CustomerDetail} />
-        <Route path={"/order-detail/:id"} component={OrderDetail} />
-        <Route path={"/user-management"} component={UserManagement} />
-        <Route path={"/audit-log"} component={AuditLog} />
-        <Route path={"/404"} component={NotFound} />
-        <Route component={NotFound} />
-      </Switch>
-    </DashboardLayout>
+    <Switch>
+      <Route path="/auth/2fa" component={TwoFactorLogin} />
+      <Route>
+        <DashboardLayout>
+          <Switch>
+            <Route path={"/"} component={Home} />
+            <Route path={"/trends"} component={Trends} />
+            <Route path={"/funnel"} component={Funnel} />
+            <Route path={"/customers"} component={Customers} />
+            <Route path={"/ai-chat"} component={AIChat} />
+            <Route path={"/sync"} component={Sync} />
+            <Route path={"/customer-management"} component={CustomerManagement} />
+            <Route path={"/order-management"} component={OrderManagement} />
+            <Route path={"/customer/:id"} component={CustomerDetail} />
+            <Route path={"/customer-detail/:id"} component={CustomerDetail} />
+            <Route path={"/order-detail/:id"} component={OrderDetail} />
+            <Route path={"/user-management"} component={UserManagement} />
+            <Route path={"/audit-log"} component={AuditLog} />
+            <Route path={"/account/settings"} component={AccountSettings} />
+            <Route path={"/404"} component={NotFound} />
+            <Route component={NotFound} />
+          </Switch>
+        </DashboardLayout>
+      </Route>
+    </Switch>
   );
 }
 

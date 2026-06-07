@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,15 +12,17 @@ import { Search, Download, ChevronLeft, ChevronRight, Filter, X, Trash2, Eye } f
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { exportToExcelFile } from "@/lib/excelUtils";
+import { canGoNextPage, formatDeferredTotal, totalPagesFromCount } from "@/lib/listPagination";
+import { flattenOrdersToExportRows, ORDER_EXPORT_COLUMNS } from "@shared/orderExport";
 import { usePermissions } from "@/hooks/usePermissions";
 
 const SEARCH_FIELDS = [
-  { value: "orderNumber", label: "訂單編號" },
-  { value: "customerName", label: "顧客姓名" },
+  { value: "orderNumber", label: "訂編" },
+  { value: "customerName", label: "顧客" },
   { value: "customerPhone", label: "顧客手機" },
-  { value: "customerEmail", label: "顧客信箱" },
-  { value: "recipientName", label: "收件人姓名" },
-  { value: "recipientPhone", label: "收件人手機" },
+  { value: "customerEmail", label: "顧客 Email" },
+  { value: "recipientName", label: "收件人名" },
+  { value: "recipientPhone", label: "收件人電話" },
   { value: "recipientEmail", label: "收件人信箱" },
   { value: "deliveryNumber", label: "配送編號" },
 ] as const;
@@ -67,15 +69,26 @@ export default function OrderManagement() {
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectAllMode, setSelectAllMode] = useState(false);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
 
-  const { data: filterOptions } = trpc.orderMgmt.filterOptions.useQuery();
+  const selectedIdsKey = useMemo(() => [...selectedIds].sort((a, b) => a - b).join(","), [selectedIds]);
+
+  useEffect(() => {
+    setDeleteConfirmed(false);
+  }, [selectedIdsKey, selectAllMode]);
+
+  const { data: filterOptions } = trpc.orderMgmt.filterOptions.useQuery(undefined, {
+    enabled: showFilters,
+  });
 
   const batchDeleteMutation = trpc.orderMgmt.batchDelete.useMutation({
     onSuccess: (result) => {
       toast.success(`已刪除 ${(result as any).deletedCount ?? (result as any).deleted ?? 0} 筆訂單資料`);
       setSelectedIds(new Set());
       setSelectAllMode(false);
+      setDeleteConfirmed(false);
       utils.orderMgmt.list.invalidate();
+      utils.orderMgmt.meta.invalidate();
       utils.dashboard.kpi.invalidate();
       utils.dashboard.funnel.invalidate();
       utils.dashboard.lifecycle.invalidate();
@@ -108,7 +121,30 @@ export default function OrderManagement() {
 
   const queryFilters = useMemo(() => buildFilters(), [buildFilters]);
 
-  const { data, isLoading } = trpc.orderMgmt.list.useQuery(queryFilters);
+  const listFilters = useMemo(
+    () => ({
+      ...queryFilters,
+      includeTotal: false,
+      includeAggregateStats: false,
+    }),
+    [queryFilters],
+  );
+
+  const metaFilters = useMemo(() => queryFilters, [queryFilters]);
+
+  const { data, isLoading, isFetching, isSuccess: listSuccess } = trpc.orderMgmt.list.useQuery(listFilters);
+  const listReadyForMeta = listSuccess && !isFetching;
+  const { data: meta, isLoading: metaLoading } = trpc.orderMgmt.meta.useQuery(metaFilters, {
+    enabled: listReadyForMeta,
+  });
+
+  const total = meta?.total ?? data?.total ?? null;
+  const aggregateStats = meta?.aggregateStats ?? data?.aggregateStats;
+  const tableLoading = isLoading && !data;
+  const pageSize = 50;
+  const totalPages = totalPagesFromCount(total, pageSize);
+  const canGoNext = canGoNextPage(page, pageSize, total, data?.items?.length ?? 0);
+  const totalPagesResolved = totalPages ?? (canGoNext ? page + 2 : page + 1);
 
   const clearAllFilters = () => {
     setSearchValue("");
@@ -156,7 +192,7 @@ export default function OrderManagement() {
     setSelectedIds(new Set());
   };
 
-  const effectiveSelectedCount = selectAllMode ? (data?.total || 0) : selectedIds.size;
+  const effectiveSelectedCount = selectAllMode ? (total ?? 0) : selectedIds.size;
 
   // Build filters without page/limit for batch operations
   const buildBatchFilters = useCallback(() => {
@@ -189,51 +225,27 @@ export default function OrderManagement() {
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      if (selectedIds.size > 0) {
-        const selectedItems = (data?.items || []).filter(o => selectedIds.has(o.id));
-        exportToExcel(selectedItems);
-        return;
-      }
-      // Export all filtered results (no pagination)
       const filters = buildFilters();
       delete (filters as any).page;
       delete (filters as any).limit;
+
+      if (selectedIds.size > 0 && !selectAllMode) {
+        (filters as any).ids = Array.from(selectedIds);
+      }
+
       const items = await utils.orderMgmt.export.fetch(filters as any);
-      exportToExcel(items || []);
+      const rows = flattenOrdersToExportRows(items || []);
+      if (rows.length === 0) {
+        toast.error("沒有可匯出的資料");
+        return;
+      }
+      exportToExcelFile(rows, `訂單資料_${new Date().toISOString().slice(0, 10)}.xlsx`, "訂單資料", [...ORDER_EXPORT_COLUMNS]);
     } catch (err) {
-      console.error('Export failed:', err);
-      toast.error('匯出失敗，僅匯出當頁資料');
-      exportToExcel(data?.items || []);
+      console.error("Export failed:", err);
+      toast.error("匯出失敗，請稍後再試");
     } finally {
       setIsExporting(false);
     }
-  };
-
-  const exportToExcel = (items: any[]) => {
-    const rows = items.map(o => ({
-      "訂單編號": o.externalId || "",
-      "訂單日期": o.orderDate ? new Date(o.orderDate).toLocaleDateString("zh-TW") : "",
-      "顧客姓名": o.customerName || "",
-      "顧客手機": o.customerPhone || "",
-      "顧客信箱": o.customerEmail || "",
-      "收件人姓名": o.recipientName || "",
-      "收件人手機": o.recipientPhone || "",
-      "收件人信箱": o.recipientEmail || "",
-      "訂單來源": o.orderSource || "",
-      "付款方式": o.paymentMethod || "",
-      "配送方式": o.shippingMethod || "",
-      "收貨地址": o.shippingAddress || "",
-      "訂單金額": o.total || "0",
-      "出貨日期": o.shippedAt ? new Date(o.shippedAt).toLocaleDateString("zh-TW") : "",
-      "出貨狀態": (o as any).shippingStatus || "",
-      "出貨單號碼": (o as any).shipmentNumber || "",
-      "配送編號": (o as any).deliveryNumber || "",
-      "物流狀態": (o as any).logisticsStatus || "",
-      "訂單處理狀態": (o as any).orderStatusText || "",
-      "LINE UID": (o as any).customerLineUid || "",
-      "黑名單": (o as any).customerBlacklisted || "",
-    }));
-    exportToExcelFile(rows, `訂單資料_${new Date().toISOString().slice(0, 10)}.xlsx`, "訂單資料");
   };
 
   const handleBatchDelete = () => {
@@ -243,8 +255,6 @@ export default function OrderManagement() {
       batchDeleteMutation.mutate({ ids: Array.from(selectedIds) });
     }
   };
-
-  const totalPages = Math.ceil((data?.total || 0) / 50);
 
   const statusLabel = (status: number | null) => {
     switch (status) {
@@ -265,7 +275,7 @@ export default function OrderManagement() {
         <div>
           <h1 className="text-2xl font-bold">訂單資料管理</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            共 {data?.total ?? 0} 筆訂單資料
+            共 {formatDeferredTotal(total, metaLoading)} 筆訂單資料
             {(selectedIds.size > 0 || selectAllMode) && (
               <span className="ml-2 text-primary font-medium">
                 （已{selectAllMode ? '全' : '勾'}選 {effectiveSelectedCount} 筆）
@@ -275,13 +285,26 @@ export default function OrderManagement() {
         </div>
         <div className="flex gap-2">
           {canDelete && (selectedIds.size > 0 || selectAllMode) && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" disabled={batchDeleteMutation.isPending}>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${effectiveSelectedCount} 筆`}
-                </Button>
-              </AlertDialogTrigger>
+            <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <Checkbox
+                  checked={deleteConfirmed}
+                  onCheckedChange={(v) => setDeleteConfirmed(v === true)}
+                  aria-label="確認刪除所選訂單"
+                />
+                <span className="text-destructive whitespace-nowrap">確認刪除</span>
+              </label>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={!deleteConfirmed || batchDeleteMutation.isPending}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${effectiveSelectedCount} 筆`}
+                  </Button>
+                </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>確認刪除訂單資料</AlertDialogTitle>
@@ -299,6 +322,7 @@ export default function OrderManagement() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            </div>
           )}
           {canExport && (
             <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
@@ -444,21 +468,21 @@ export default function OrderManagement() {
       )}
 
       {/* Aggregate Stats - only shown when filters are active */}
-      {data?.aggregateStats && (
+      {aggregateStats && (
         <Card>
           <CardContent className="pt-4 pb-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div className="space-y-1">
                 <p className="text-muted-foreground">總計筆數</p>
-                <p className="text-lg font-bold">{data.aggregateStats.totalCount.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold">{aggregateStats.totalCount.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">黑名單數</p>
-                <p className="text-lg font-bold text-red-600">{data.aggregateStats.blacklistCount.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold text-red-600">{aggregateStats.blacklistCount.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">訂單金額總計</p>
-                <p className="text-lg font-bold">${data.aggregateStats.totalAmount.toLocaleString()}</p>
+                <p className="text-lg font-bold">${aggregateStats.totalAmount.toLocaleString()}</p>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -466,7 +490,7 @@ export default function OrderManagement() {
               <div className="space-y-2">
                 <p className="text-sm font-semibold">配送方式統計</p>
                 <div className="space-y-1">
-                  {data.aggregateStats.shippingDistribution.map((s: any) => (
+                  {aggregateStats.shippingDistribution.map((s: any) => (
                     <div key={s.method} className="flex justify-between text-sm border-b pb-1">
                       <span>{s.method}</span>
                       <span className="font-medium">{s.count.toLocaleString()} 筆</span>
@@ -478,7 +502,7 @@ export default function OrderManagement() {
               <div className="space-y-2">
                 <p className="text-sm font-semibold">付款方式統計</p>
                 <div className="space-y-1">
-                  {data.aggregateStats.paymentDistribution.map((p: any) => (
+                  {aggregateStats.paymentDistribution.map((p: any) => (
                     <div key={p.method} className="flex justify-between text-sm border-b pb-1">
                       <span>{p.method}</span>
                       <span className="font-medium">${p.totalAmount.toLocaleString()}</span>
@@ -491,8 +515,16 @@ export default function OrderManagement() {
         </Card>
       )}
 
+      {metaLoading && !aggregateStats && showFilters && activeFilterCount > 0 && (
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-sm text-muted-foreground">篩選統計載入中…</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Select All Banner */}
-      {allCurrentSelected && !selectAllMode && (data?.total || 0) > currentPageIds.length && (
+      {allCurrentSelected && !selectAllMode && (total ?? 0) > currentPageIds.length && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between">
           <p className="text-sm text-blue-800">
             已選取當頁 <strong>{currentPageIds.length}</strong> 筆。
@@ -503,15 +535,15 @@ export default function OrderManagement() {
             className="text-blue-700 font-medium p-0 h-auto"
             onClick={handleSelectAllFiltered}
           >
-            選取全部符合篩選條件的 {(data?.total || 0).toLocaleString()} 筆
+            選取全部符合篩選條件的 {formatDeferredTotal(total, metaLoading)} 筆
           </Button>
         </div>
       )}
       {selectAllMode && (
         <div className="bg-blue-100 border border-blue-300 rounded-lg px-4 py-3 flex items-center justify-between">
           <p className="text-sm text-blue-900 font-medium">
-            已選取全部符合篩選條件的 <strong>{(data?.total || 0).toLocaleString()}</strong> 筆訂單。
-            {(data?.total || 0) > 5000 && <span className="text-orange-600 ml-2">（批次操作上限 5,000 筆）</span>}
+            已選取全部符合篩選條件的 <strong>{formatDeferredTotal(total, metaLoading)}</strong> 筆訂單。
+            {(total ?? 0) > 5000 && <span className="text-orange-600 ml-2">（批次操作上限 5,000 筆）</span>}
           </p>
           <Button
             variant="link"
@@ -541,26 +573,26 @@ export default function OrderManagement() {
                       />
                     </TableHead>
                   )}
-                  <TableHead className="min-w-[120px]">訂單編號</TableHead>
+                  <TableHead className="min-w-[120px]">訂編</TableHead>
                   <TableHead className="min-w-[60px]">詳情</TableHead>
                   <TableHead className="min-w-[90px]">訂單日期</TableHead>
-                  <TableHead className="min-w-[80px]">顧客姓名</TableHead>
+                  <TableHead className="min-w-[80px]">顧客</TableHead>
                   <TableHead className="min-w-[100px]">顧客手機</TableHead>
-                  <TableHead className="min-w-[80px]">收件人</TableHead>
+                  <TableHead className="min-w-[80px]">收件人名</TableHead>
                   <TableHead className="min-w-[80px]">訂單來源</TableHead>
                   <TableHead className="min-w-[80px]">付款方式</TableHead>
-                  <TableHead className="min-w-[80px]">配送方式</TableHead>
+                  <TableHead className="min-w-[80px]">寄送方式</TableHead>
                   <TableHead className="min-w-[100px] text-right">訂單金額</TableHead>
                   <TableHead className="min-w-[70px]">訂單狀態</TableHead>
                   <TableHead className="min-w-[90px]">出貨日期</TableHead>
-                  <TableHead className="min-w-[110px]">出貨單號碼</TableHead>
+                  <TableHead className="min-w-[110px]">出貨單號</TableHead>
                   <TableHead className="min-w-[100px]">配送編號</TableHead>
                   <TableHead className="min-w-[80px]">物流狀態</TableHead>
                   <TableHead className="min-w-[80px]">出貨狀態</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {tableLoading ? (
                   <TableRow>
                     <TableCell colSpan={17} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
                   </TableRow>
@@ -612,16 +644,16 @@ export default function OrderManagement() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
+          {(totalPagesResolved > 1 || canGoNext || page > 0) && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
               <p className="text-sm text-muted-foreground">
-                第 {page + 1} / {totalPages} 頁，共 {data?.total || 0} 筆
+                第 {page + 1}{totalPages != null ? ` / ${totalPages}` : ""} 頁，共 {formatDeferredTotal(total, metaLoading)} 筆
               </p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+                <Button variant="outline" size="sm" disabled={!canGoNext} onClick={() => setPage(p => p + 1)}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

@@ -60,6 +60,18 @@ describe("Security: Data Exposure Prevention", () => {
     expect(funcBody).toContain("rawData excluded");
   });
 
+  it("getCustomerList should not return rawData field", async () => {
+    const fs = await import("fs");
+    const dbContent = fs.readFileSync("server/db.ts", "utf-8");
+
+    const funcStart = dbContent.indexOf("export async function getCustomerList(");
+    const funcEnd = dbContent.indexOf("export async function getCustomerAnalyticsStats");
+    const funcBody = dbContent.slice(funcStart, funcEnd);
+
+    expect(funcBody).toContain("rawData excluded");
+    expect(funcBody).not.toMatch(/\.select\(\)\s*\n\s*\.from\(customers\)/);
+  });
+
   it("getOrderManagement should not return rawData field", async () => {
     const fs = await import("fs");
     const dbContent = fs.readFileSync("server/db.ts", "utf-8");
@@ -136,6 +148,31 @@ describe("Security: Authentication", () => {
     const authChecks = (indexContent.match(/verifyAuthSession/g) || []).length;
     // Should have multiple auth checks (at least for upload, batch, create-job, complete)
     expect(authChecks).toBeGreaterThanOrEqual(4);
+  });
+
+  it("CRM upsert should reject when CRM_API_KEY is not configured", async () => {
+    const fs = await import("fs");
+    const indexContent = fs.readFileSync("server/_core/index.ts", "utf-8");
+
+    expect(indexContent).toContain("if (!apiKey)");
+    expect(indexContent).not.toMatch(/if \(apiKey && req\.headers\["x-api-key"\]/);
+  });
+
+  it("routers should enforce permissions on customerMgmt and orderMgmt", async () => {
+    const fs = await import("fs");
+    const routersContent = fs.readFileSync("server/routers.ts", "utf-8");
+
+    expect(routersContent).toContain('assertPermission(ctx.user, "customer_mgmt"');
+    expect(routersContent).toContain('assertPermission(ctx.user, "order_mgmt"');
+    expect(routersContent).toContain('assertPermission(ctx.user, "dashboard"');
+  });
+
+  it("import routes should verify job access and file-type permissions", async () => {
+    const fs = await import("fs");
+    const indexContent = fs.readFileSync("server/_core/index.ts", "utf-8");
+
+    expect(indexContent).toContain("verifyImportJobAccess");
+    expect(indexContent).toContain('verifyImportJobAccess(jobId, dbUser.id, dbUser.role, fileType)');
   });
 });
 

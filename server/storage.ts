@@ -18,10 +18,18 @@ function getStorageConfig(): StorageConfig {
   return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
 }
 
-function buildUploadUrl(baseUrl: string, relKey: string): URL {
-  const url = new URL("v1/storage/upload", ensureTrailingSlash(baseUrl));
+function buildStoragePathUrl(baseUrl: string, endpoint: string, relKey: string): URL {
+  const url = new URL(endpoint, ensureTrailingSlash(baseUrl));
   url.searchParams.set("path", normalizeKey(relKey));
   return url;
+}
+
+function buildUploadUrl(baseUrl: string, relKey: string): URL {
+  return buildStoragePathUrl(baseUrl, "v1/storage/upload", relKey);
+}
+
+function buildDeleteUrl(baseUrl: string, relKey: string): URL {
+  return buildStoragePathUrl(baseUrl, "v1/storage/delete", relKey);
 }
 
 async function buildDownloadUrl(
@@ -99,4 +107,29 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
     key,
     url: await buildDownloadUrl(baseUrl, key, apiKey),
   };
+}
+
+/** Returns false when storage credentials are not configured. */
+export function isStorageConfigured(): boolean {
+  return Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
+}
+
+export async function storageDelete(relKey: string): Promise<void> {
+  if (!isStorageConfigured()) return;
+
+  const { baseUrl, apiKey } = getStorageConfig();
+  const key = normalizeKey(relKey);
+  const deleteUrl = buildDeleteUrl(baseUrl, key);
+
+  const response = await fetch(deleteUrl, {
+    method: "DELETE",
+    headers: buildAuthHeaders(apiKey),
+  });
+
+  if (response.ok || response.status === 404) return;
+
+  const message = await response.text().catch(() => response.statusText);
+  throw new Error(
+    `Storage delete failed (${response.status} ${response.statusText}): ${message}`
+  );
 }

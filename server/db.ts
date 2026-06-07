@@ -1,9 +1,10 @@
 import { eq, and, gte, lte, sql, inArray, desc, asc, between, like, or, count, isNotNull, ne, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, customers, orders, syncLogs, settings, orderItems, products, userPermissions, auditLogs } from "../drizzle/schema";
+import { validOrderStatusDrizzle, validOrderStatusSql, resetAllCustomerConsumptionStats } from "./customerStats";
 import { getDefaultPermissions, getAllPermissions, type PermissionKey } from "../shared/permissions";
 import { encrypt, decrypt, maskToken } from "./crypto";
-import { ENV } from './_core/env';
+import { ENV, isOwnerAccount } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -56,7 +57,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
+    } else if (isOwnerAccount({ openId: user.openId, email: user.email })) {
       values.role = 'admin';
       updateSet.role = 'admin';
     }
@@ -89,7 +90,7 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-/** Link a Google account on login, merging pre-created pending users by email. */
+/** Link a Google account on login, merging existing users by email (incl. Manus → Google migration). */
 export async function loginWithGoogleUser(profile: {
   openId: string;
   email: string | null;
@@ -104,11 +105,14 @@ export async function loginWithGoogleUser(profile: {
     const byEmail = await db
       .select()
       .from(users)
-      .where(eq(users.email, profile.email))
-      .limit(1);
+      .where(eq(users.email, profile.email));
 
-    if (byEmail.length > 0 && byEmail[0].openId.startsWith("pending_")) {
-      const existing = byEmail[0];
+    if (byEmail.length > 0) {
+      const existing =
+        byEmail.find((u) => u.role === "admin") ??
+        byEmail.find((u) => !u.openId.startsWith("pending_")) ??
+        byEmail[0];
+
       const updateSet: Record<string, unknown> = {
         openId: profile.openId,
         loginMethod: "google",
@@ -117,10 +121,18 @@ export async function loginWithGoogleUser(profile: {
       if (profile.name) {
         updateSet.name = profile.name;
       }
-      if (profile.openId === ENV.ownerOpenId) {
+      if (isOwnerAccount(profile)) {
         updateSet.role = "admin";
       }
+
       await db.update(users).set(updateSet).where(eq(users.id, existing.id));
+
+      // Clean up duplicate rows created after OAuth provider switch (same email, different openId)
+      for (const dupe of byEmail) {
+        if (dupe.id === existing.id) continue;
+        await db.delete(userPermissions).where(eq(userPermissions.userId, dupe.id));
+        await db.delete(users).where(eq(users.id, dupe.id));
+      }
       return;
     }
   }
@@ -131,6 +143,7 @@ export async function loginWithGoogleUser(profile: {
     name: profile.name,
     loginMethod: "google",
     lastSignedIn: new Date(),
+    ...(isOwnerAccount(profile) ? { role: "admin" as const } : {}),
   });
 }
 
@@ -635,9 +648,11 @@ export async function getCustomerList(filters: DashboardFilters & {
   page?: number;
   limit?: number;
   search?: string;
+  includeTotal?: boolean;
+  includeItems?: boolean;
 } = {}) {
   const db = await getDb();
-  if (!db) return { items: [], total: 0 };
+  if (!db) return { items: [], total: null };
 
   const conditions: any[] = [];
   if (filters.lifecycles && filters.lifecycles.length > 0) {
@@ -656,24 +671,69 @@ export async function getCustomerList(filters: DashboardFilters & {
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters.page ?? 0;
   const limit = filters.limit ?? 20;
+  const includeTotal = filters.includeTotal !== false;
+  const includeItems = filters.includeItems !== false;
 
-  const [countResult] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(customers)
-    .where(where);
+  let total: number | null = null;
+  if (includeTotal) {
+    const [countResult] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(customers)
+      .where(where);
+    total = Number(countResult?.count || 0);
+  }
 
-  const items = await db
-    .select()
-    .from(customers)
-    .where(where)
-    .orderBy(desc(customers.lastShipmentAt))
-    .limit(limit)
-    .offset(page * limit);
+  let items: Array<{
+    id: number;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    registeredAt: Date | null;
+    lastShipmentAt: Date | null;
+    totalOrders: number;
+    totalSpent: string;
+    lifecycle: "N" | "A" | "S" | "L" | "D" | "O" | null;
+    avgRepurchaseDays: number | null;
+  }> = [];
+
+  if (includeItems) {
+    items = await db
+      .select({
+        id: customers.id,
+        name: customers.name,
+        email: customers.email,
+        phone: customers.phone,
+        registeredAt: customers.registeredAt,
+        lastShipmentAt: customers.lastShipmentAt,
+        totalOrders: customers.totalOrders,
+        totalSpent: customers.totalSpent,
+        lifecycle: customers.lifecycle,
+        avgRepurchaseDays: customers.avgRepurchaseDays,
+        // SECURITY: rawData excluded - not needed for dashboard list display
+      })
+      .from(customers)
+      .where(where)
+      .orderBy(desc(customers.lastShipmentAt))
+      .limit(limit)
+      .offset(page * limit);
+  }
 
   return {
     items,
-    total: Number(countResult?.count || 0),
+    total,
   };
+}
+
+/** Customer list count only (for deferred total display). */
+export async function getCustomerListMeta(filters: DashboardFilters & { search?: string } = {}) {
+  const result = await getCustomerList({
+    ...filters,
+    page: 0,
+    limit: 1,
+    includeItems: false,
+    includeTotal: true,
+  });
+  return { total: result.total ?? 0 };
 }
 
 /** Get customer analytics stats */
@@ -888,7 +948,6 @@ export async function clearAllData(targets: string[]): Promise<{ success: boolea
   const deleted: Record<string, number> = {};
 
   if (shouldClear("orders")) {
-    // Delete order items first (foreign key dependency)
     const [itemResult] = await db.delete(orderItems).where(sql`1=1`);
     deleted.orderItems = (itemResult as any).affectedRows || 0;
     const [orderResult] = await db.delete(orders).where(sql`1=1`);
@@ -896,6 +955,9 @@ export async function clearAllData(targets: string[]): Promise<{ success: boolea
   }
 
   if (shouldClear("customers")) {
+    if (!shouldClear("orders")) {
+      await db.update(orders).set({ customerId: null, customerExternalId: null }).where(sql`1=1`);
+    }
     const [custResult] = await db.delete(customers).where(sql`1=1`);
     deleted.customers = (custResult as any).affectedRows || 0;
   }
@@ -903,6 +965,11 @@ export async function clearAllData(targets: string[]): Promise<{ success: boolea
   if (shouldClear("products")) {
     const [prodResult] = await db.delete(products).where(sql`1=1`);
     deleted.products = (prodResult as any).affectedRows || 0;
+  }
+
+  // Orders cleared but customers kept → zero out consumption stats on all members
+  if (shouldClear("orders") && !shouldClear("customers")) {
+    await resetAllCustomerConsumptionStats(db);
   }
 
   return { success: true, deleted };
@@ -957,11 +1024,16 @@ export interface CustomerManagementFilters {
   // Pagination
   page?: number;
   limit?: number;
+  /** When false, skip COUNT(*) — use with a separate meta query for faster first paint. */
+  includeTotal?: boolean;
+  includeAggregateStats?: boolean;
+  includeItems?: boolean;
+  includeIntervalStats?: boolean;
 }
 
 export async function getCustomerManagement(filters: CustomerManagementFilters = {}) {
   const db = await getDb();
-  if (!db) return { items: [], total: 0 };
+  if (!db) return { items: [], total: null, aggregateStats: null };
 
   const conditions: any[] = [];
 
@@ -1073,13 +1145,23 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters.page ?? 0;
   const limit = filters.limit ?? 50;
+  const includeTotal = filters.includeTotal !== false;
+  const includeAggregateStats = filters.includeAggregateStats !== false;
+  const includeItems = filters.includeItems !== false;
+  const includeIntervalStats = filters.includeIntervalStats === true;
 
-  const [countResult] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(customers)
-    .where(where);
+  let total: number | null = null;
+  if (includeTotal) {
+    const [countResult] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(customers)
+      .where(where);
+    total = Number(countResult?.count || 0);
+  }
 
-  const items = await db
+  let items: any[] = [];
+  if (includeItems) {
+    items = await db
     .select({
       id: customers.id,
       externalId: customers.externalId,
@@ -1124,10 +1206,11 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
     .orderBy(desc(customers.registeredAt))
     .limit(limit)
     .offset(page * limit);
+  }
 
   // Fetch interval order counts for tooltip display
   let intervalStats: Map<number, { ordersIn6m: number; ordersIn6to12m: number; ltvOneYear: number }> = new Map();
-  if (items.length > 0) {
+  if (includeIntervalStats && items.length > 0) {
     const now = new Date();
     const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
     const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
@@ -1147,7 +1230,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
           FROM orders
           WHERE customerId IN (${sql.join(batchIds.map(id => sql`${id}`), sql`, `)})
             AND orderStatus != -1 AND isShipped = 1 AND shippedAt IS NOT NULL
-            AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
+            AND ${sql.raw(validOrderStatusSql())} AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
           GROUP BY customerId
         `);
         // db.execute returns [rows, fields] - extract rows
@@ -1178,7 +1261,7 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
   // Aggregate stats for filtered results (only when filters are active)
   let aggregateStats = null;
   const hasActiveFilters = !!(filters.registeredFrom || filters.registeredTo || filters.birthdayMonth || filters.tags || filters.memberLevel || (filters.creditsOp && filters.creditsValue !== undefined) || (filters.totalSpentOp && filters.totalSpentValue !== undefined) || (filters.totalOrdersOp && filters.totalOrdersValue !== undefined) || filters.lastPurchaseFrom || filters.lastPurchaseTo || (filters.lastPurchaseAmountOp && filters.lastPurchaseAmountValue !== undefined) || filters.lastShipmentFrom || filters.lastShipmentTo || (filters.lifecycles && filters.lifecycles.length > 0) || filters.blacklisted || filters.lineUid || filters.gender || filters.company || (filters.searchValue && filters.searchField));
-  if (hasActiveFilters) {
+  if (includeAggregateStats && hasActiveFilters) {
     try {
       const [statsResult] = await db
         .select({
@@ -1209,14 +1292,34 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
 
   return {
     items: enrichedItems,
-    total: Number(countResult?.count || 0),
+    total,
     aggregateStats,
   };
 }
 
+/** Count + filter aggregate stats without loading list rows. */
+export async function getCustomerManagementMeta(
+  filters: Omit<CustomerManagementFilters, "page" | "limit"> = {},
+) {
+  return getCustomerManagement({
+    ...filters,
+    page: 0,
+    limit: 1,
+    includeItems: false,
+    includeTotal: true,
+    includeAggregateStats: true,
+    includeIntervalStats: false,
+  });
+}
+
 /** Get all customers matching filters (for export, no pagination) */
 export async function getCustomerManagementExport(filters: CustomerManagementFilters = {}) {
-  const result = await getCustomerManagement({ ...filters, page: 0, limit: 100000 });
+  const result = await getCustomerManagement({
+    ...filters,
+    page: 0,
+    limit: 100000,
+    includeIntervalStats: true,
+  });
   return result.items;
 }
 
@@ -1257,13 +1360,58 @@ export interface OrderManagementFilters {
   // Pagination
   page?: number;
   limit?: number;
+  includeTotal?: boolean;
+  includeAggregateStats?: boolean;
+  includeItems?: boolean;
+  /** Attach customer lineUid/blacklisted (export only — avoids slow JOIN on list). */
+  includeCustomerExtras?: boolean;
+  /** Include rawData (export only). */
+  includeRawData?: boolean;
+  /** Export/delete by specific order IDs. */
+  ids?: number[];
+}
+
+const ORDER_LIST_BATCH = 500;
+
+async function attachOrderCustomerExtras(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  items: Array<{ customerId: number | null }>,
+) {
+  const customerIds = Array.from(
+    new Set(items.map((o) => o.customerId).filter((id): id is number => id != null)),
+  );
+  const customerMap = new Map<number, { lineUid: string | null; blacklisted: string | null }>();
+
+  for (let i = 0; i < customerIds.length; i += ORDER_LIST_BATCH) {
+    const slice = customerIds.slice(i, i + ORDER_LIST_BATCH);
+    const rows = await db
+      .select({ id: customers.id, lineUid: customers.lineUid, blacklisted: customers.blacklisted })
+      .from(customers)
+      .where(inArray(customers.id, slice));
+    for (const row of rows) {
+      customerMap.set(row.id, { lineUid: row.lineUid, blacklisted: row.blacklisted });
+    }
+  }
+
+  return items.map((o) => {
+    const extra = o.customerId != null ? customerMap.get(o.customerId) : undefined;
+    return {
+      ...o,
+      customerLineUid: extra?.lineUid ?? null,
+      customerBlacklisted: extra?.blacklisted ?? null,
+    };
+  });
 }
 
 export async function getOrderManagement(filters: OrderManagementFilters = {}) {
   const db = await getDb();
-  if (!db) return { items: [], total: 0 };
+  if (!db) return { items: [], total: null, aggregateStats: null };
 
   const conditions: any[] = [];
+
+  if (filters.ids?.length) {
+    conditions.push(inArray(orders.id, filters.ids));
+  }
 
   // X-axis: text search
   if (filters.searchValue && filters.searchField) {
@@ -1294,13 +1442,24 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters.page ?? 0;
   const limit = filters.limit ?? 50;
+  const includeTotal = filters.includeTotal !== false;
+  const includeAggregateStats = filters.includeAggregateStats !== false;
+  const includeItems = filters.includeItems !== false;
+  const includeCustomerExtras = filters.includeCustomerExtras === true;
+  const includeRawData = filters.includeRawData === true;
 
-  const [countResult] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(orders)
-    .where(where);
+  let total: number | null = null;
+  if (includeTotal) {
+    const [countResult] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(orders)
+      .where(where);
+    total = Number(countResult?.count || 0);
+  }
 
-  const items = await db
+  let items: any[] = [];
+  if (includeItems) {
+    items = await db
     .select({
       id: orders.id,
       externalId: orders.externalId,
@@ -1328,24 +1487,23 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
       logisticsStatus: orders.logisticsStatus,
       shippingStatus: orders.shippingStatus,
       orderStatusText: orders.orderStatusText,
-      customerLineUid: customers.lineUid,
-      customerBlacklisted: customers.blacklisted,
+      ...(includeRawData ? { rawData: orders.rawData, progress: orders.progress } : {}),
     })
     .from(orders)
-    .leftJoin(customers, or(
-      and(isNotNull(orders.customerId), eq(orders.customerId, customers.id)),
-      and(sql`${orders.customerId} IS NULL`, isNotNull(orders.customerExternalId), eq(orders.customerExternalId, customers.externalId)),
-      and(sql`${orders.customerId} IS NULL`, sql`${orders.customerExternalId} IS NULL`, isNotNull(orders.customerEmail), eq(orders.customerEmail, customers.email))
-    ))
     .where(where)
     .orderBy(desc(orders.orderDate))
     .limit(limit)
     .offset(page * limit);
 
+    if (includeCustomerExtras && items.length > 0) {
+      items = await attachOrderCustomerExtras(db, items);
+    }
+  }
+
   // Aggregate stats for filtered results (only when filters are active)
   let aggregateStats = null;
   const hasActiveFilters = !!(filters.orderSource || filters.paymentMethod || filters.shippingMethod || filters.shippingAddress || filters.shippedFrom || filters.shippedTo || filters.logisticsStatus || filters.shippingStatus || filters.orderStatusText || (filters.searchValue && filters.searchField));
-  if (hasActiveFilters) {
+  if (includeAggregateStats && hasActiveFilters) {
     try {
       // Combined: total amount + count in single query
       const [amountResult] = await db
@@ -1387,7 +1545,7 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
         .groupBy(orders.paymentMethod);
 
       aggregateStats = {
-        totalCount: Number(countResult?.count || 0),
+        totalCount: total ?? 0,
         blacklistCount: Number(blacklistResult?.blacklistCount || 0),
         totalAmount: parseFloat(String(amountResult?.totalAmount || "0")),
         shippingDistribution: shippingDist.map(s => ({ method: s.method || "未指定", count: Number(s.count) })),
@@ -1401,15 +1559,75 @@ export async function getOrderManagement(filters: OrderManagementFilters = {}) {
 
   return {
     items,
-    total: Number(countResult?.count || 0),
+    total,
     aggregateStats,
   };
 }
 
-/** Get all orders matching filters (for export, no pagination) */
+/** Count + filter aggregate stats without loading list rows. */
+export async function getOrderManagementMeta(
+  filters: Omit<OrderManagementFilters, "page" | "limit"> = {},
+) {
+  return getOrderManagement({
+    ...filters,
+    page: 0,
+    limit: 1,
+    includeItems: false,
+    includeTotal: true,
+    includeAggregateStats: true,
+  });
+}
+
+/** Get all orders matching filters (for export, no pagination) with line items. */
 export async function getOrderManagementExport(filters: OrderManagementFilters = {}) {
-  const result = await getOrderManagement({ ...filters, page: 0, limit: 100000 });
-  return result.items;
+  const db = await getDb();
+  if (!db) return [];
+
+  const result = await getOrderManagement({
+    ...filters,
+    page: 0,
+    limit: 100000,
+    includeCustomerExtras: true,
+    includeRawData: true,
+  });
+  const items = result.items;
+  if (items.length === 0) return [];
+
+  const orderIds = items.map((o: { id: number }) => o.id);
+  const itemsByOrderId = new Map<number, Array<{
+    productSku: string | null;
+    productName: string | null;
+    productSpec: string | null;
+    quantity: number | null;
+    unitPrice: string | null;
+  }>>();
+
+  for (let i = 0; i < orderIds.length; i += ORDER_LIST_BATCH) {
+    const slice = orderIds.slice(i, i + ORDER_LIST_BATCH);
+    const rows = await db
+      .select({
+        orderId: orderItems.orderId,
+        productSku: orderItems.productSku,
+        productName: orderItems.productName,
+        productSpec: orderItems.productSpec,
+        quantity: orderItems.quantity,
+        unitPrice: orderItems.unitPrice,
+      })
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, slice));
+    for (const row of rows) {
+      if (row.orderId == null) continue;
+      const list = itemsByOrderId.get(row.orderId) ?? [];
+      list.push(row);
+      itemsByOrderId.set(row.orderId, list);
+    }
+  }
+
+  return items.map((order: { id: number; rawData?: unknown }) => ({
+    ...order,
+    rawData: (order.rawData as Record<string, unknown> | null) ?? null,
+    lineItems: itemsByOrderId.get(order.id) ?? [],
+  }));
 }
 
 /** Get all order IDs matching filters (for batch operations) */
@@ -1492,7 +1710,7 @@ export async function batchDeleteOrders(ids: number[]): Promise<{ deleted: numbe
     if (!customerId) continue;
     const validCondition = and(
       eq(orders.customerId, customerId),
-      sql`(${orders.orderStatusText} = '已完成' OR ${orders.orderStatusText} IS NULL)`,
+      validOrderStatusDrizzle(),
       sql`(${orders.shippingStatus} IS NULL OR ${orders.shippingStatus} != '已退貨')`
     );
     const stats = await db.select({
@@ -1509,7 +1727,7 @@ export async function batchDeleteOrders(ids: number[]): Promise<{ deleted: numbe
         .from(orders)
         .where(and(
           eq(orders.customerId, customerId),
-          sql`(${orders.orderStatusText} = '已完成' OR ${orders.orderStatusText} IS NULL)`,
+          validOrderStatusDrizzle(),
           sql`(${orders.shippingStatus} IS NULL OR ${orders.shippingStatus} != '已退貨')`
         ))
         .orderBy(desc(orders.orderDate))
@@ -1862,7 +2080,7 @@ export async function recalculateAllLifecycles(referenceDate: Date): Promise<{
       AND o.isShipped = 1
       AND o.shippedAt IS NOT NULL
       AND o.customerId IS NOT NULL
-      AND (o.orderStatusText = '已完成' OR o.orderStatusText IS NULL)
+      AND ${sql.raw(validOrderStatusSql("o."))}
       AND (o.shippingStatus IS NULL OR o.shippingStatus != '已退貨')
     GROUP BY o.customerId
   `);

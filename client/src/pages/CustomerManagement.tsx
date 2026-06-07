@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { exportToExcelFile } from "@/lib/excelUtils";
+import { canGoNextPage, formatDeferredTotal, totalPagesFromCount } from "@/lib/listPagination";
 import { usePermissions } from "@/hooks/usePermissions";
 
 const SEARCH_FIELDS = [
@@ -89,8 +90,17 @@ export default function CustomerManagement() {
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectAllMode, setSelectAllMode] = useState(false);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
 
-  const { data: memberLevels } = trpc.customerMgmt.memberLevels.useQuery();
+  const selectedIdsKey = useMemo(() => [...selectedIds].sort((a, b) => a - b).join(","), [selectedIds]);
+
+  useEffect(() => {
+    setDeleteConfirmed(false);
+  }, [selectedIdsKey, selectAllMode]);
+
+  const { data: memberLevels } = trpc.customerMgmt.memberLevels.useQuery(undefined, {
+    enabled: showFilters,
+  });
 
   // Batch update state
   const [batchMemberLevel, setBatchMemberLevel] = useState<string>("");
@@ -108,6 +118,7 @@ export default function CustomerManagement() {
       setBatchCredits("");
       setShowBatchUpdate(false);
       utils.customerMgmt.list.invalidate();
+      utils.customerMgmt.meta.invalidate();
     },
     onError: (err) => {
       toast.error(`更新失敗: ${err.message}`);
@@ -167,7 +178,9 @@ export default function CustomerManagement() {
       toast.success(`已刪除 ${(result as any).deletedCount ?? (result as any).deleted ?? 0} 筆客戶資料及其關聯訂單`);
       setSelectedIds(new Set());
       setSelectAllMode(false);
+      setDeleteConfirmed(false);
       utils.customerMgmt.list.invalidate();
+      utils.customerMgmt.meta.invalidate();
       utils.dashboard.kpi.invalidate();
       utils.dashboard.funnel.invalidate();
       utils.dashboard.lifecycle.invalidate();
@@ -211,7 +224,30 @@ export default function CustomerManagement() {
 
   const queryFilters = useMemo(() => buildFilters(), [buildFilters]);
 
-  const { data, isLoading } = trpc.customerMgmt.list.useQuery(queryFilters);
+  const listFilters = useMemo(
+    () => ({
+      ...queryFilters,
+      includeTotal: false,
+      includeAggregateStats: false,
+      includeIntervalStats: false,
+    }),
+    [queryFilters],
+  );
+
+  const metaFilters = useMemo(() => queryFilters, [queryFilters]);
+
+  const { data, isLoading, isFetching, isSuccess: listSuccess } = trpc.customerMgmt.list.useQuery(listFilters);
+  const listReadyForMeta = listSuccess && !isFetching;
+  const { data: meta, isLoading: metaLoading } = trpc.customerMgmt.meta.useQuery(metaFilters, {
+    enabled: listReadyForMeta,
+  });
+
+  const total = meta?.total ?? data?.total ?? null;
+  const aggregateStats = meta?.aggregateStats ?? data?.aggregateStats;
+  const tableLoading = isLoading && !data;
+  const pageSize = 50;
+  const totalPages = totalPagesFromCount(total, pageSize);
+  const canGoNext = canGoNextPage(page, pageSize, total, data?.items?.length ?? 0);
 
   const clearAllFilters = () => {
     setSearchValue("");
@@ -277,7 +313,7 @@ export default function CustomerManagement() {
   };
 
   // The effective count for display: either selectAllMode total or manual selection count
-  const effectiveSelectedCount = selectAllMode ? (data?.total || 0) : selectedIds.size;
+  const effectiveSelectedCount = selectAllMode ? (total ?? 0) : selectedIds.size;
 
   const toggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -412,7 +448,7 @@ export default function CustomerManagement() {
     }
   };
 
-  const totalPages = Math.ceil((data?.total || 0) / 50);
+  const totalPagesResolved = totalPages ?? (canGoNext ? page + 2 : page + 1);
 
   const toggleLifecycle = (lc: string) => {
     setSelectedLifecycles(prev =>
@@ -448,7 +484,8 @@ export default function CustomerManagement() {
         <div>
           <h1 className="text-2xl font-bold">客戶資料管理</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            共 {data?.total ?? 0} 筆客戶資料
+            共 {formatDeferredTotal(total, metaLoading)} 筆客戶資料
+            {isFetching && data ? <span className="text-muted-foreground text-sm ml-2">更新中…</span> : null}
             {(selectedIds.size > 0 || selectAllMode) && (
               <span className="ml-2 text-primary font-medium">
                 （已{selectAllMode ? '全' : '勾'}選 {effectiveSelectedCount} 筆）
@@ -469,13 +506,26 @@ export default function CustomerManagement() {
             </Button>
           )}
           {canDelete && (selectedIds.size > 0 || selectAllMode) && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" disabled={batchDeleteMutation.isPending}>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${effectiveSelectedCount} 筆`}
-                </Button>
-              </AlertDialogTrigger>
+            <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <Checkbox
+                  checked={deleteConfirmed}
+                  onCheckedChange={(v) => setDeleteConfirmed(v === true)}
+                  aria-label="確認刪除所選客戶"
+                />
+                <span className="text-destructive whitespace-nowrap">確認刪除</span>
+              </label>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={!deleteConfirmed || batchDeleteMutation.isPending}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    {batchDeleteMutation.isPending ? "刪除中..." : `刪除 ${effectiveSelectedCount} 筆`}
+                  </Button>
+                </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>確認刪除客戶資料</AlertDialogTitle>
@@ -493,6 +543,7 @@ export default function CustomerManagement() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            </div>
           )}
           {canExport && (
             <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
@@ -555,7 +606,7 @@ export default function CustomerManagement() {
       </Card>
 
       {/* Select All Banner */}
-      {allCurrentSelected && !selectAllMode && (data?.total || 0) > currentPageIds.length && (
+      {allCurrentSelected && !selectAllMode && (total ?? 0) > currentPageIds.length && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between">
           <p className="text-sm text-blue-800">
             已選取當頁 <strong>{currentPageIds.length}</strong> 筆。
@@ -566,15 +617,15 @@ export default function CustomerManagement() {
             className="text-blue-700 font-medium p-0 h-auto"
             onClick={handleSelectAllFiltered}
           >
-            選取全部符合篩選條件的 {(data?.total || 0).toLocaleString()} 筆
+            選取全部符合篩選條件的 {formatDeferredTotal(total, metaLoading)} 筆
           </Button>
         </div>
       )}
       {selectAllMode && (
         <div className="bg-blue-100 border border-blue-300 rounded-lg px-4 py-3 flex items-center justify-between">
           <p className="text-sm text-blue-900 font-medium">
-            已選取全部符合篩選條件的 <strong>{(data?.total || 0).toLocaleString()}</strong> 筆客戶。
-            {(data?.total || 0) > 5000 && <span className="text-orange-600 ml-2">（批次操作上限 5,000 筆）</span>}
+            已選取全部符合篩選條件的 <strong>{formatDeferredTotal(total, metaLoading)}</strong> 筆客戶。
+            {(total ?? 0) > 5000 && <span className="text-orange-600 ml-2">（批次操作上限 5,000 筆）</span>}
           </p>
           <Button
             variant="link"
@@ -886,40 +937,45 @@ export default function CustomerManagement() {
       )}
 
       {/* Aggregate Stats - only shown when filters are active */}
-      {data?.aggregateStats && (
+      {aggregateStats && (
         <Card>
           <CardContent className="pt-4 pb-4">
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 text-sm">
               <div className="space-y-1">
                 <p className="text-muted-foreground">總計筆數</p>
-                <p className="text-lg font-bold">{data.aggregateStats.totalCount.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold">{aggregateStats.totalCount.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">黑名單數</p>
-                <p className="text-lg font-bold text-red-600">{data.aggregateStats.blacklistCount.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold text-red-600">{aggregateStats.blacklistCount.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">消費 0 次</p>
-                <p className="text-lg font-bold">{data.aggregateStats.orders0.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold">{aggregateStats.orders0.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">消費 1 次</p>
-                <p className="text-lg font-bold">{data.aggregateStats.orders1.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold">{aggregateStats.orders1.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">消費 2 次</p>
-                <p className="text-lg font-bold">{data.aggregateStats.orders2.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold">{aggregateStats.orders2.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">消費 3 次以上</p>
-                <p className="text-lg font-bold">{data.aggregateStats.orders3plus.toLocaleString()} 筆</p>
+                <p className="text-lg font-bold">{aggregateStats.orders3plus.toLocaleString()} 筆</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground">累消金額總計</p>
-                <p className="text-lg font-bold">${data.aggregateStats.totalSpentSum.toLocaleString()}</p>
+                <p className="text-lg font-bold">${aggregateStats.totalSpentSum.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
+        </Card>
+      )}
+      {metaLoading && !aggregateStats && showFilters && (
+        <Card>
+          <CardContent className="py-4 text-sm text-muted-foreground text-center">篩選統計載入中…</CardContent>
         </Card>
       )}
 
@@ -954,7 +1010,7 @@ export default function CustomerManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {tableLoading ? (
                   <TableRow>
                     <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">載入中...</TableCell>
                   </TableRow>
@@ -1018,16 +1074,16 @@ export default function CustomerManagement() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
+          {(totalPagesResolved > 1 || canGoNext || page > 0) && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
               <p className="text-sm text-muted-foreground">
-                第 {page + 1} / {totalPages} 頁，共 {data?.total || 0} 筆
+                第 {page + 1}{totalPages != null ? ` / ${totalPages}` : ""} 頁，共 {formatDeferredTotal(total, metaLoading)} 筆
               </p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+                <Button variant="outline" size="sm" disabled={!canGoNext} onClick={() => setPage(p => p + 1)}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

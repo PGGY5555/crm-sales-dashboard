@@ -1,4 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS, PENDING_2FA_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
@@ -14,6 +14,10 @@ export type SessionPayload = {
   openId: string;
   name: string;
   email?: string;
+};
+
+export type Pending2FAPayload = SessionPayload & {
+  purpose: "2fa_pending";
 };
 
 class SessionService {
@@ -79,7 +83,11 @@ class SessionService {
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, name, email } = payload as Record<string, unknown>;
+      const { openId, name, email, purpose } = payload as Record<string, unknown>;
+
+      if (purpose === "2fa_pending") {
+        return null;
+      }
 
       if (!isNonEmptyString(openId)) {
         console.warn("[Auth] Session payload missing openId");
@@ -93,6 +101,55 @@ class SessionService {
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
+      return null;
+    }
+  }
+
+  async createPending2FAToken(
+    openId: string,
+    options: { name?: string; email?: string } = {}
+  ): Promise<string> {
+    const issuedAt = Date.now();
+    const expirationSeconds = Math.floor((issuedAt + PENDING_2FA_MS) / 1000);
+    const secretKey = this.getSessionSecret();
+
+    return new SignJWT({
+      openId,
+      name: options.name || "",
+      email: options.email ?? "",
+      purpose: "2fa_pending",
+    })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setExpirationTime(expirationSeconds)
+      .sign(secretKey);
+  }
+
+  async verifyPending2FA(
+    cookieValue: string | undefined | null
+  ): Promise<Pending2FAPayload | null> {
+    if (!cookieValue) {
+      return null;
+    }
+
+    try {
+      const secretKey = this.getSessionSecret();
+      const { payload } = await jwtVerify(cookieValue, secretKey, {
+        algorithms: ["HS256"],
+      });
+      const { openId, name, email, purpose } = payload as Record<string, unknown>;
+
+      if (purpose !== "2fa_pending" || !isNonEmptyString(openId)) {
+        return null;
+      }
+
+      return {
+        openId,
+        name: isNonEmptyString(name) ? name : "",
+        email: isNonEmptyString(email) ? email : undefined,
+        purpose: "2fa_pending",
+      };
+    } catch (error) {
+      console.warn("[Auth] Pending 2FA verification failed", String(error));
       return null;
     }
   }

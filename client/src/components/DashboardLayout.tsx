@@ -22,24 +22,25 @@ import {
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { usePermissions } from "@/hooks/usePermissions";
+import { getDefaultRoute, isRouteAccessible, NAV_ITEMS } from "@shared/navRoutes";
 import type { PermissionKey } from "@shared/permissions";
-import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw, UserCog, FileText, Shield, ScrollText } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, TrendingUp, Filter, MessageSquare, RefreshCw, UserCog, FileText, Shield, ScrollText, Settings } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
 const menuItems: { icon: any; label: string; path: string; adminOnly: boolean; permKey?: PermissionKey }[] = [
-  { icon: LayoutDashboard, label: "儀表板總覽", path: "/", adminOnly: false, permKey: "dashboard" },
-  { icon: TrendingUp, label: "銷售趨勢", path: "/trends", adminOnly: false, permKey: "dashboard" },
-  { icon: Filter, label: "銷售漏斗", path: "/funnel", adminOnly: false, permKey: "funnel" },
-  { icon: Users, label: "客戶分析", path: "/customers", adminOnly: false, permKey: "customer_analysis" },
-  { icon: UserCog, label: "客戶資料管理", path: "/customer-management", adminOnly: false, permKey: "customer_mgmt" },
-  { icon: FileText, label: "訂單資料管理", path: "/order-management", adminOnly: false, permKey: "order_mgmt" },
-  { icon: MessageSquare, label: "AI 洞察", path: "/ai-chat", adminOnly: false, permKey: "ai_chat" },
-  { icon: RefreshCw, label: "數據同步", path: "/sync", adminOnly: false, permKey: "data_sync" },
-  { icon: Shield, label: "使用者管理", path: "/user-management", adminOnly: true },
-  { icon: ScrollText, label: "操作日誌", path: "/audit-log", adminOnly: true },
+  { icon: LayoutDashboard, label: "儀表板總覽", path: NAV_ITEMS[0].path, adminOnly: false, permKey: "dashboard" },
+  { icon: TrendingUp, label: "銷售趨勢", path: NAV_ITEMS[1].path, adminOnly: false, permKey: "dashboard" },
+  { icon: Filter, label: "銷售漏斗", path: NAV_ITEMS[2].path, adminOnly: false, permKey: "funnel" },
+  { icon: Users, label: "客戶分析", path: NAV_ITEMS[3].path, adminOnly: false, permKey: "customer_analysis" },
+  { icon: UserCog, label: "客戶資料管理", path: NAV_ITEMS[4].path, adminOnly: false, permKey: "customer_mgmt" },
+  { icon: FileText, label: "訂單資料管理", path: NAV_ITEMS[5].path, adminOnly: false, permKey: "order_mgmt" },
+  { icon: MessageSquare, label: "AI 洞察", path: NAV_ITEMS[6].path, adminOnly: false, permKey: "ai_chat" },
+  { icon: RefreshCw, label: "數據同步", path: NAV_ITEMS[7].path, adminOnly: false, permKey: "data_sync" },
+  { icon: Shield, label: "使用者管理", path: NAV_ITEMS[8].path, adminOnly: true },
+  { icon: ScrollText, label: "操作日誌", path: NAV_ITEMS[9].path, adminOnly: true },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -57,12 +58,13 @@ export default function DashboardLayout({
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
   const { loading, user } = useAuth();
+  const { isLoading: permsLoading } = usePermissions();
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
   }, [sidebarWidth]);
 
-  if (loading) {
+  if (loading || (user && permsLoading)) {
     return <DashboardLayoutSkeleton />
   }
 
@@ -140,7 +142,7 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const { hasPermission, isAdmin } = usePermissions();
+  const { hasPermission, isAdmin, isLoading: permsLoading, permissions } = usePermissions();
   const visibleMenuItems = menuItems.filter(item => {
     if (item.adminOnly) return isAdmin;
     if (item.permKey) return hasPermission(item.permKey);
@@ -148,6 +150,18 @@ function DashboardLayoutContent({
   });
   const activeMenuItem = visibleMenuItems.find(item => item.path === location) || menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    if (permsLoading) return;
+
+    const access = { isAdmin, hasPermission };
+    if (!isRouteAccessible(location, access)) {
+      const target = getDefaultRoute(access);
+      if (target !== location) {
+        setLocation(target);
+      }
+    }
+  }, [location, permsLoading, isAdmin, permissions, setLocation]);
 
   useEffect(() => {
     if (isCollapsed) {
@@ -255,6 +269,13 @@ function DashboardLayoutContent({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => setLocation("/account/settings")}
+                  className="cursor-pointer"
+                >
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>帳號設定</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={logout}
                   className="cursor-pointer text-destructive focus:text-destructive"

@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { canGoNextPage, formatDeferredTotal, totalPagesFromCount } from "@/lib/listPagination";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -67,12 +68,18 @@ export default function Customers() {
   const [shipmentToOpen, setShipmentToOpen] = useState(false);
   const [shipmentFilterActive, setShipmentFilterActive] = useState(false);
 
-  const queryInput = useMemo(() => ({
+  const listInput = useMemo(() => ({
     page,
     limit: 20,
     search: search || undefined,
     lifecycles: selectedLifecycles.length > 0 ? selectedLifecycles : undefined,
+    includeTotal: false,
   }), [page, search, selectedLifecycles]);
+
+  const metaFilters = useMemo(() => ({
+    search: search || undefined,
+    lifecycles: selectedLifecycles.length > 0 ? selectedLifecycles : undefined,
+  }), [search, selectedLifecycles]);
 
   const lifecycleFilter = useMemo(() => ({
     lifecycles: selectedLifecycles.length > 0 ? selectedLifecycles : undefined,
@@ -85,22 +92,35 @@ export default function Customers() {
 
   const utils = trpc.useUtils();
 
-  const { data: customerData, isLoading: customersLoading } =
-    trpc.dashboard.customers.useQuery(queryInput);
+  const { data: customerData, isLoading: customersLoading, isFetching: customersFetching, isSuccess: listSuccess } =
+    trpc.dashboard.customers.useQuery(listInput);
+
+  const listReadyForMeta = listSuccess && !customersFetching;
+  const { data: customersMeta, isLoading: metaLoading } =
+    trpc.dashboard.customersMeta.useQuery(metaFilters, { enabled: listReadyForMeta });
+
+  const listReady = listReadyForMeta;
 
   const { data: lifecycle, isLoading: lifecycleLoading } =
-    trpc.dashboard.lifecycle.useQuery(lifecycleFilter);
+    trpc.dashboard.lifecycle.useQuery(lifecycleFilter, { enabled: listReady });
 
   const { data: analyticsStats, isLoading: statsLoading } =
-    trpc.dashboard.customerAnalyticsStats.useQuery(lifecycleFilter);
+    trpc.dashboard.customerAnalyticsStats.useQuery(lifecycleFilter, { enabled: listReady });
 
   const { data: registrationTrend, isLoading: trendLoading } =
-    trpc.dashboard.customerRegistrationTrend.useQuery(lifecycleFilter);
+    trpc.dashboard.customerRegistrationTrend.useQuery(lifecycleFilter, { enabled: listReady });
 
   const { data: shipmentKpi, isLoading: shipmentKpiLoading } =
     trpc.dashboard.shipmentDateKPI.useQuery(shipmentKpiInput, {
       enabled: shipmentFilterActive,
     });
+
+  const total = customersMeta?.total ?? customerData?.total ?? null;
+  const tableLoading = customersLoading && !customerData;
+  const pageSize = 20;
+  const totalPages = totalPagesFromCount(total, pageSize);
+  const canGoNext = canGoNextPage(page, pageSize, total, customerData?.items?.length ?? 0);
+  const totalPagesResolved = totalPages ?? (canGoNext ? page + 2 : page + 1);
 
   const LIFECYCLE_LABELS: Record<string, string> = {
     N: "N 新鮮客", A: "A 活躍客", S: "S 沉睡客", L: "L 流失客", D: "D 封存客", O: "O 機會客",
@@ -129,10 +149,6 @@ export default function Customers() {
     );
     setPage(0);
   };
-
-  const totalPages = customerData
-    ? Math.ceil(customerData.total / 20)
-    : 0;
 
   const getLifecycleBadge = (lc: string | null) => {
     const opt = LIFECYCLE_OPTIONS.find((o) => o.value === lc);
@@ -370,7 +386,165 @@ export default function Customers() {
         </div>
       )}
 
-      {/* Stats Cards */}
+      {/* Lifecycle Filter Chips */}
+      <div className="flex flex-wrap gap-2">
+        {LIFECYCLE_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => toggleLifecycle(opt.value)}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
+              selectedLifecycles.includes(opt.value)
+                ? "border-transparent text-white shadow-sm"
+                : "border-border bg-background text-foreground hover:bg-muted"
+            }`}
+            style={
+              selectedLifecycles.includes(opt.value)
+                ? { backgroundColor: opt.color }
+                : {}
+            }
+          >
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: opt.color }}
+            />
+            {opt.label}
+          </button>
+        ))}
+        {selectedLifecycles.length > 0 && (
+          <button
+            onClick={() => {
+              setSelectedLifecycles([]);
+              setPage(0);
+            }}
+            className="text-sm text-muted-foreground hover:text-foreground px-2"
+          >
+            清除篩選
+          </button>
+        )}
+      </div>
+
+      {/* Customer Table — loads first */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <CardTitle className="text-base">
+              客戶列表
+              <span className="text-muted-foreground font-normal ml-2">
+                ({formatDeferredTotal(total, metaLoading)} 筆，依最後出貨日排序)
+              </span>
+            </CardTitle>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="搜尋客戶名稱、Email、電話..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(0);
+                }}
+                className="pl-9 h-9"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {tableLoading ? (
+            <div className="space-y-3">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          ) : customerData && customerData.items.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-muted-foreground">
+                      <th className="text-left py-3 px-2 font-medium">客戶名稱</th>
+                      <th className="text-left py-3 px-2 font-medium">Email</th>
+                      <th className="text-left py-3 px-2 font-medium">電話</th>
+                      <th className="text-center py-3 px-2 font-medium">分類</th>
+                      <th className="text-right py-3 px-2 font-medium">訂單數</th>
+                      <th className="text-right py-3 px-2 font-medium">消費總額</th>
+                      <th className="text-right py-3 px-2 font-medium">回購天數</th>
+                      <th className="text-right py-3 px-2 font-medium">最後出貨</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customerData.items.map((cust) => (
+                      <tr
+                        key={cust.id}
+                        className="border-b last:border-0 hover:bg-muted/50 transition-colors"
+                      >
+                        <td className="py-3 px-2 font-medium">
+                          {cust.name || "—"}
+                        </td>
+                        <td className="py-3 px-2 text-muted-foreground">
+                          {cust.email || "—"}
+                        </td>
+                        <td className="py-3 px-2 text-muted-foreground">
+                          {cust.phone || "—"}
+                        </td>
+                        <td className="py-3 px-2 text-center">
+                          {getLifecycleBadge(cust.lifecycle)}
+                        </td>
+                        <td className="py-3 px-2 text-right">{cust.totalOrders}</td>
+                        <td className="py-3 px-2 text-right">
+                          ${parseFloat(String(cust.totalSpent)).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          {cust.avgRepurchaseDays !== null && cust.avgRepurchaseDays !== undefined && cust.avgRepurchaseDays > 0
+                            ? `${cust.avgRepurchaseDays} 天`
+                            : "—"}
+                        </td>
+                        <td className="py-3 px-2 text-right text-muted-foreground">
+                          {cust.lastShipmentAt
+                            ? new Date(cust.lastShipmentAt).toLocaleDateString("zh-TW")
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {(totalPagesResolved > 1 || canGoNext || page > 0) && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    第 {page + 1}{totalPages != null ? ` / ${totalPages}` : ""} 頁，共 {formatDeferredTotal(total, metaLoading)} 筆
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page === 0}
+                      onClick={() => setPage((p) => p - 1)}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!canGoNext}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="py-12 text-center text-muted-foreground">
+              {search
+                ? "找不到符合條件的客戶"
+                : "暫無客戶數據，請先同步 CRM 資料"}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Stats Cards — deferred after list */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {statsLoading ? (
           [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24" />)
@@ -448,44 +622,7 @@ export default function Customers() {
         ) : null}
       </div>
 
-      {/* Lifecycle Filter Chips */}
-      <div className="flex flex-wrap gap-2">
-        {LIFECYCLE_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => toggleLifecycle(opt.value)}
-            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
-              selectedLifecycles.includes(opt.value)
-                ? "border-transparent text-white shadow-sm"
-                : "border-border bg-background text-foreground hover:bg-muted"
-            }`}
-            style={
-              selectedLifecycles.includes(opt.value)
-                ? { backgroundColor: opt.color }
-                : {}
-            }
-          >
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: opt.color }}
-            />
-            {opt.label}
-          </button>
-        ))}
-        {selectedLifecycles.length > 0 && (
-          <button
-            onClick={() => {
-              setSelectedLifecycles([]);
-              setPage(0);
-            }}
-            className="text-sm text-muted-foreground hover:text-foreground px-2"
-          >
-            清除篩選
-          </button>
-        )}
-      </div>
-
-      {/* Charts Row */}
+      {/* Charts Row — deferred after list */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -675,129 +812,6 @@ export default function Customers() {
         </CardContent>
       </Card>
 
-      {/* Customer Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <CardTitle className="text-base">
-              客戶列表
-              {customerData && (
-                <span className="text-muted-foreground font-normal ml-2">
-                  ({customerData.total.toLocaleString()} 筆，依最後出貨日排序)
-                </span>
-              )}
-            </CardTitle>
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="搜尋客戶名稱、Email、電話..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(0);
-                }}
-                className="pl-9 h-9"
-              />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {customersLoading ? (
-            <div className="space-y-3">
-              {[...Array(5)].map((_, i) => (
-                <Skeleton key={i} className="h-14 w-full" />
-              ))}
-            </div>
-          ) : customerData && customerData.items.length > 0 ? (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-muted-foreground">
-                      <th className="text-left py-3 px-2 font-medium">客戶名稱</th>
-                      <th className="text-left py-3 px-2 font-medium">Email</th>
-                      <th className="text-left py-3 px-2 font-medium">電話</th>
-                      <th className="text-center py-3 px-2 font-medium">分類</th>
-                      <th className="text-right py-3 px-2 font-medium">訂單數</th>
-                      <th className="text-right py-3 px-2 font-medium">消費總額</th>
-                      <th className="text-right py-3 px-2 font-medium">回購天數</th>
-                      <th className="text-right py-3 px-2 font-medium">最後出貨</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {customerData.items.map((cust) => (
-                      <tr
-                        key={cust.id}
-                        className="border-b last:border-0 hover:bg-muted/50 transition-colors"
-                      >
-                        <td className="py-3 px-2 font-medium">
-                          {cust.name || "—"}
-                        </td>
-                        <td className="py-3 px-2 text-muted-foreground">
-                          {cust.email || "—"}
-                        </td>
-                        <td className="py-3 px-2 text-muted-foreground">
-                          {cust.phone || "—"}
-                        </td>
-                        <td className="py-3 px-2 text-center">
-                          {getLifecycleBadge(cust.lifecycle)}
-                        </td>
-                        <td className="py-3 px-2 text-right">{cust.totalOrders}</td>
-                        <td className="py-3 px-2 text-right">
-                          ${parseFloat(String(cust.totalSpent)).toLocaleString()}
-                        </td>
-                        <td className="py-3 px-2 text-right">
-                          {cust.avgRepurchaseDays !== null && cust.avgRepurchaseDays !== undefined && cust.avgRepurchaseDays > 0
-                            ? `${cust.avgRepurchaseDays} 天`
-                            : "—"}
-                        </td>
-                        <td className="py-3 px-2 text-right text-muted-foreground">
-                          {cust.lastShipmentAt
-                            ? new Date(cust.lastShipmentAt).toLocaleDateString("zh-TW")
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                  <p className="text-sm text-muted-foreground">
-                    第 {page + 1} / {totalPages} 頁
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page === 0}
-                      onClick={() => setPage((p) => p - 1)}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page >= totalPages - 1}
-                      onClick={() => setPage((p) => p + 1)}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="py-12 text-center text-muted-foreground">
-              {search
-                ? "找不到符合條件的客戶"
-                : "暫無客戶數據，請先同步 CRM 資料"}
-            </div>
-          )}
-        </CardContent>
-      </Card>
       {/* Transition Summary Dialog */}
       <Dialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">

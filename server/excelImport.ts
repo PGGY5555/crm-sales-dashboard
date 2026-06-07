@@ -11,6 +11,15 @@ import { getDb } from "./db";
 import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
 import { classifyCustomer, calculateRepurchaseDays } from "./sync";
 import { clearRawData } from "./clearRawData";
+import { refreshCustomerStatsAfterImport, type ImportStatsHints } from "./customerStats";
+import {
+  getOrderNumberFromRow,
+  isOrderShipped,
+  normalizeOrderImportRow,
+  pickOrderShippingAddress,
+  pickOrderString,
+  type OrderImportColumn,
+} from "../shared/importFieldMapping";
 
 // ===== Column Mappings =====
 
@@ -47,41 +56,7 @@ interface CustomerRow {
   "SF出貨日"?: string;
 }
 
-interface OrderRow {
-  "訂單編號"?: string;
-  "訂單建立時間"?: string;
-  "會員信箱"?: string;
-  "訂單處理狀態"?: string;
-  "付款狀態"?: string;
-  "出貨狀態"?: string;
-  "訂單小計"?: number;
-  "訂單運費"?: number;
-  "訂單使用優惠券"?: number;
-  "訂單折扣"?: number;
-  "訂單使用購物金"?: number;
-  "訂單使用點數"?: number;
-  "訂單總計"?: number;
-  "商品名稱"?: string;
-  "商品規格"?: string;
-  "商品SKU"?: string;
-  "商品購買數量"?: number;
-  "商品價格"?: number;
-  "顧客姓名"?: string;
-  "顧客手機"?: string;
-  "顧客信箱"?: string;
-  "收件人姓名"?: string;
-  "收件人手機"?: string;
-  "收件人信箱"?: string;
-  "付款方式"?: string;
-  "配送方式"?: string;
-  "備註"?: string;
-  "出貨庫存點"?: string;
-  "出貨單日期"?: string;
-  "訂單來源"?: string;
-  "收貨地址"?: string;
-  "出貨單號碼"?: string;
-  "訂單狀態"?: string;
-}
+type OrderRow = Partial<Record<OrderImportColumn, string | number>>;
 
 interface ProductRow {
   "商品名稱"?: string;
@@ -132,7 +107,7 @@ function parseNum(val: string | number | undefined | null): number {
 function mapOrderStatus(statusText: string | undefined): number {
   if (!statusText) return 0;
   const s = String(statusText).trim();
-  if (s.includes("取消") || s.includes("作廢")) return -1;
+  if (s.includes("取消") || s.includes("作廢") || s.includes("退貨")) return -1;
   if (s.includes("完成") || s.includes("已完成")) return 2;
   if (s.includes("確認") || s.includes("處理中")) return 1;
   return 0;
@@ -554,102 +529,99 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
 
     const orderMap = new Map<string, OrderRow[]>();
     for (const row of rows) {
-      const orderNum = String(row["訂單編號"] || "").trim();
+      const normalized = normalizeOrderImportRow(row);
+      const orderNum = getOrderNumberFromRow(normalized);
       if (!orderNum) continue;
       if (!orderMap.has(orderNum)) {
         orderMap.set(orderNum, []);
       }
-      orderMap.get(orderNum)!.push(row);
+      orderMap.get(orderNum)!.push(normalized as OrderRow);
     }
 
     let ordersProcessed = 0;
     let itemsProcessed = 0;
     let errorCount = 0;
     const orderEntries = Array.from(orderMap.entries());
+    const statsHints: ImportStatsHints = {
+      customerIds: [],
+      emails: [],
+      phones: [],
+      orderExternalIds: [],
+    };
 
     for (let i = 0; i < orderEntries.length; i += BATCH_SIZE) {
       const batch = orderEntries.slice(i, i + BATCH_SIZE);
 
       for (const [orderNum, orderRows] of batch) {
         try {
-          const firstRow = orderRows[0];
-          const orderDate = parseDate(firstRow["訂單建立時間"]);
-          const orderStatus = mapOrderStatus(firstRow["訂單處理狀態"]);
-          const shipped = isShippedFromText(firstRow["出貨狀態"]);
-          const total = parseNum(firstRow["訂單總計"]);
-          const shipmentFee = parseNum(firstRow["訂單運費"]);
-          const shippedAtDate = parseDate(firstRow["出貨單日期"]) || (shipped ? orderDate : null);
+          const firstRow = normalizeOrderImportRow(orderRows[0]);
+          const orderDate = parseDate(pickOrderString(firstRow, "訂單日期"));
+          const orderStatus = mapOrderStatus(pickOrderString(firstRow, "訂單狀態"));
+          const shipped = isOrderShipped(firstRow, parseDate(pickOrderString(firstRow, "出貨日期")));
+          const total = parseNum(pickOrderString(firstRow, "訂單金額"));
+          const shippedAtDate = parseDate(pickOrderString(firstRow, "出貨日期")) || (shipped ? orderDate : null);
 
-          const custEmail = firstRow["會員信箱"]?.trim() || firstRow["顧客信箱"]?.trim();
-          const custName = firstRow["顧客姓名"]?.trim();
-          const custPhone = firstRow["顧客手機"]?.trim();
+          const custEmail = pickOrderString(firstRow, "顧客 Email") || null;
+          const custName = pickOrderString(firstRow, "顧客") || null;
+          const custPhone = pickOrderString(firstRow, "顧客手機") || null;
+
+          if (custEmail) statsHints.emails!.push(custEmail);
+          if (custPhone) statsHints.phones!.push(custPhone);
+          statsHints.orderExternalIds!.push(orderNum);
 
           let customerExtId: string | null = null;
           if (custEmail) {
-            const existingCust = await db.select({ externalId: customers.externalId })
+            const existingCust = await db.select({ externalId: customers.externalId, id: customers.id })
               .from(customers)
-              .where(eq(customers.email, custEmail))
+              .where(sql`LOWER(${customers.email}) = LOWER(${custEmail})`)
               .limit(1);
             if (existingCust.length > 0) {
               customerExtId = existingCust[0].externalId;
+              if (existingCust[0].id) statsHints.customerIds!.push(existingCust[0].id);
             }
           }
 
-          const recipientName = firstRow["收件人姓名"]?.trim() || null;
-          const recipientPhone = firstRow["收件人手機"]?.trim() || null;
-          const recipientEmail = firstRow["收件人信箱"]?.trim() || null;
-          const orderSource = firstRow["訂單來源"] ? String(firstRow["訂單來源"]).trim() : null;
-          const paymentMethod = firstRow["付款方式"]?.trim() || null;
-          const shippingMethod = firstRow["配送方式"]?.trim() || null;
-          const shippingAddress = firstRow["收貨地址"] ? String(firstRow["收貨地址"]).trim() : null;
-          const shipmentNumber = firstRow["出貨單號碼"] ? String(firstRow["出貨單號碼"]).trim() : null;
-          const shippingStatus = firstRow["出貨狀態"]?.trim() || null;
-          const orderStatusText = firstRow["訂單狀態"]?.trim() || firstRow["訂單處理狀態"]?.trim() || null;
+          const paymentStatus = pickOrderString(firstRow, "付款狀態") || null;
 
           await db.insert(orders).values({
             externalId: orderNum,
             customerExternalId: customerExtId,
-            customerName: custName || null,
-            customerEmail: custEmail || null,
-            customerPhone: custPhone || null,
+            customerName: custName,
+            customerEmail: custEmail,
+            customerPhone: custPhone,
             orderStatus,
-            progress: shippingStatus,
+            progress: paymentStatus,
             total: String(total),
-            shipmentFee: String(shipmentFee),
+            shipmentFee: "0",
             salesRep: null,
             isShipped: shipped,
             shippedAt: shippedAtDate,
             archived: false,
             orderDate,
-            recipientName,
-            recipientPhone,
-            recipientEmail,
-            orderSource,
-            paymentMethod,
-            shippingMethod,
-            shippingAddress,
-            shipmentNumber,
-            shippingStatus,
-            orderStatusText,
+            recipientName: pickOrderString(firstRow, "收件人名") || null,
+            recipientPhone: pickOrderString(firstRow, "收件人電話") || null,
+            paymentMethod: pickOrderString(firstRow, "付款方式") || null,
+            shippingMethod: pickOrderString(firstRow, "寄送方式") || null,
+            shippingAddress: pickOrderShippingAddress(firstRow) || null,
+            shipmentNumber: pickOrderString(firstRow, "出貨單號") || null,
+            shippingStatus: pickOrderString(firstRow, "出貨狀態") || null,
+            orderStatusText: pickOrderString(firstRow, "訂單狀態") || null,
             rawData: firstRow,
           }).onDuplicateKeyUpdate({
             set: {
               orderStatus,
-              progress: shippingStatus,
+              progress: paymentStatus,
               total: String(total),
-              shipmentFee: String(shipmentFee),
               isShipped: shipped,
               shippedAt: shippedAtDate,
-              recipientName,
-              recipientPhone,
-              recipientEmail,
-              orderSource,
-              paymentMethod,
-              shippingMethod,
-              shippingAddress,
-              shipmentNumber,
-              shippingStatus,
-              orderStatusText,
+              recipientName: pickOrderString(firstRow, "收件人名") || null,
+              recipientPhone: pickOrderString(firstRow, "收件人電話") || null,
+              paymentMethod: pickOrderString(firstRow, "付款方式") || null,
+              shippingMethod: pickOrderString(firstRow, "寄送方式") || null,
+              shippingAddress: pickOrderShippingAddress(firstRow) || null,
+              shipmentNumber: pickOrderString(firstRow, "出貨單號") || null,
+              shippingStatus: pickOrderString(firstRow, "出貨狀態") || null,
+              orderStatusText: pickOrderString(firstRow, "訂單狀態") || null,
               rawData: firstRow,
             },
           });
@@ -665,17 +637,18 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
           }
 
           for (const itemRow of orderRows) {
-            const productName = itemRow["商品名稱"]?.trim();
+            const normalizedItem = normalizeOrderImportRow(itemRow);
+            const productName = pickOrderString(normalizedItem, "品名");
             if (!productName) continue;
 
             await db.insert(orderItems).values({
               orderId: resolvedOrderId,
               orderExternalId: orderNum,
               productName,
-              productSku: itemRow["商品SKU"]?.trim() || null,
-              productSpec: itemRow["商品規格"]?.trim() || null,
-              quantity: parseNum(itemRow["商品購買數量"]) || 1,
-              unitPrice: String(parseNum(itemRow["商品價格"])),
+              productSku: pickOrderString(normalizedItem, "SKU") || null,
+              productSpec: pickOrderString(normalizedItem, "規格") || null,
+              quantity: parseNum(pickOrderString(normalizedItem, "數量")) || 1,
+              unitPrice: String(parseNum(pickOrderString(normalizedItem, "單價"))),
             });
             itemsProcessed++;
           }
@@ -693,7 +666,7 @@ export async function importOrdersFromExcel(buffer: Buffer, jobId?: number): Pro
       await new Promise(resolve => setTimeout(resolve, 10));
     }
 
-    await updateCustomerStatsFromOrders(db);
+    await refreshCustomerStatsAfterImport(db, statsHints);
 
     await db.update(syncLogs).set({
       status: "success",
@@ -839,103 +812,6 @@ export async function importProductsFromExcel(buffer: Buffer, jobId?: number): P
       await failJob(db, jobId, error.message || String(error));
     }
     return { success: false, processed: 0, error: error.message || String(error) };
-  }
-}
-
-// ===== Update customer stats after order import =====
-
-async function updateCustomerStatsFromOrders(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
-  const allCustomers = await db.select().from(customers);
-
-  for (const cust of allCustomers) {
-    let custOrders: any[] = [];
-    if (cust.externalId) {
-      custOrders = await db.select().from(orders)
-        .where(eq(orders.customerExternalId, cust.externalId));
-    }
-    if (custOrders.length === 0 && cust.email) {
-      custOrders = await db.select().from(orders)
-        .where(eq(orders.customerEmail, cust.email));
-      if (custOrders.length > 0) {
-        await db.update(orders)
-          .set({ customerExternalId: cust.externalId })
-          .where(eq(orders.customerEmail, cust.email));
-      }
-    }
-
-    if (custOrders.length > 0) {
-      const orderIds = custOrders.map((o: any) => o.id);
-      await db.update(orders)
-        .set({ customerId: cust.id })
-        .where(sql`${orders.id} IN (${sql.join(orderIds.map((id: number) => sql`${id}`), sql`, `)})`);
-    }
-
-    // Only count orders with orderStatusText='已完成' and shippingStatus!='已退貨'
-    // Note: if orderStatusText is NULL (old data without status), still include; if explicitly set to non-已完成, exclude
-    const validOrders = custOrders.filter(o => o.orderStatus !== -1 && (o.orderStatusText === '已完成' || !o.orderStatusText) && o.shippingStatus !== '已退貨');
-    const shippedOrders = validOrders.filter(o => o.isShipped && o.shippedAt);
-
-    const totalOrders = validOrders.length;
-    const totalSpent = validOrders.reduce((sum: number, o: any) => sum + parseFloat(String(o.total || "0")), 0);
-
-    let lastShipmentAt: Date | null = null;
-    if (shippedOrders.length > 0) {
-      const dates = shippedOrders.map((o: any) => o.shippedAt!).sort((a: Date, b: Date) => b.getTime() - a.getTime());
-      lastShipmentAt = dates[0];
-    }
-
-    // Fallback: if no shipped orders, use orderDate from valid orders
-    if (!lastShipmentAt && validOrders.length > 0) {
-      const orderDates = validOrders
-        .map((o: any) => o.orderDate)
-        .filter((d: any): d is Date => d !== null)
-        .sort((a: Date, b: Date) => b.getTime() - a.getTime());
-      if (orderDates.length > 0) {
-        lastShipmentAt = orderDates[0];
-      }
-    }
-
-    const orderDates = validOrders
-      .map((o: any) => o.orderDate)
-      .filter((d: any): d is Date => d !== null)
-      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
-    const avgRepurchaseDays = calculateRepurchaseDays(orderDates);
-
-    // Count shipped orders in time intervals (using current date as reference)
-    const now = Date.now();
-    const sixMonthsAgo = now - 180 * 24 * 60 * 60 * 1000;
-    const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
-    const ordersInSixMonths = shippedOrders.filter((o: any) => o.shippedAt!.getTime() >= sixMonthsAgo).length;
-    const ordersInSixToYear = shippedOrders.filter((o: any) => {
-      const t = o.shippedAt!.getTime();
-      return t >= oneYearAgo && t < sixMonthsAgo;
-    }).length;
-
-    const lifecycle = classifyCustomer(lastShipmentAt, cust.registeredAt, ordersInSixMonths, ordersInSixToYear);
-
-    let lastPurchaseDate: Date | null = null;
-    let lastPurchaseAmount: number | null = null;
-    if (validOrders.length > 0) {
-      const sortedByDate = [...validOrders]
-        .filter((o: any) => o.orderDate)
-        .sort((a: any, b: any) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
-      if (sortedByDate.length > 0) {
-        lastPurchaseDate = sortedByDate[0].orderDate;
-        lastPurchaseAmount = parseFloat(String(sortedByDate[0].total || "0"));
-      }
-    }
-
-    await db.update(customers)
-      .set({
-        totalOrders,
-        totalSpent: String(totalSpent.toFixed(2)),
-        lastShipmentAt,
-        avgRepurchaseDays,
-        lifecycle,
-        lastPurchaseDate,
-        lastPurchaseAmount: lastPurchaseAmount !== null ? String(lastPurchaseAmount.toFixed(2)) : null,
-      })
-      .where(eq(customers.id, cust.id));
   }
 }
 

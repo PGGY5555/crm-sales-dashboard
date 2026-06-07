@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -103,12 +104,22 @@ function KPICard({
 }
 
 export default function Home() {
-  const { data: kpi, isLoading: kpiLoading } = trpc.dashboard.kpi.useQuery(undefined);
-  const { data: salesReps, isLoading: repsLoading } = trpc.dashboard.salesReps.useQuery(undefined);
-  const { data: lifecycle, isLoading: lifecycleLoading } = trpc.dashboard.lifecycle.useQuery(undefined);
-  const { data: trend, isLoading: trendLoading } = trpc.dashboard.trend.useQuery({
-    period: "month",
+  const { hasPermission, isAdmin, isLoading: permsLoading } = usePermissions();
+  const canViewDashboard = isAdmin || hasPermission("dashboard");
+
+  const { data: kpi, isLoading: kpiLoading } = trpc.dashboard.kpi.useQuery(undefined, {
+    enabled: canViewDashboard && !permsLoading,
   });
+  const { data: salesReps, isLoading: repsLoading } = trpc.dashboard.salesReps.useQuery(undefined, {
+    enabled: canViewDashboard && !permsLoading,
+  });
+  const { data: lifecycle, isLoading: lifecycleLoading } = trpc.dashboard.lifecycle.useQuery(undefined, {
+    enabled: canViewDashboard && !permsLoading,
+  });
+  const { data: trend, isLoading: trendLoading } = trpc.dashboard.trend.useQuery(
+    { period: "month" },
+    { enabled: canViewDashboard && !permsLoading }
+  );
 
   const formatCurrency = (val: number) => {
     if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;

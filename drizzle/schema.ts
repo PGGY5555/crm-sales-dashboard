@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, bigint, json, boolean } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, bigint, json, boolean, index } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -10,6 +10,8 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  twoFactorSecret: varchar("twoFactorSecret", { length: 512 }),
+  twoFactorEnabled: boolean("twoFactorEnabled").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -73,7 +75,15 @@ export const customers = mysqlTable("customers", {
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  registeredAtIdx: index("customers_registeredAt_idx").on(table.registeredAt),
+  lastShipmentAtIdx: index("customers_lastShipmentAt_idx").on(table.lastShipmentAt),
+  emailIdx: index("customers_email_idx").on(table.email),
+  phoneIdx: index("customers_phone_idx").on(table.phone),
+  lifecycleIdx: index("customers_lifecycle_idx").on(table.lifecycle),
+  memberLevelIdx: index("customers_memberLevel_idx").on(table.memberLevel),
+  lastPurchaseDateIdx: index("customers_lastPurchaseDate_idx").on(table.lastPurchaseDate),
+}));
 
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;
@@ -123,7 +133,14 @@ export const orders = mysqlTable("orders", {
   rawData: json("rawData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  orderDateIdx: index("orders_orderDate_idx").on(table.orderDate),
+  customerIdIdx: index("orders_customerId_idx").on(table.customerId),
+  shippedAtIdx: index("orders_shippedAt_idx").on(table.shippedAt),
+  shipmentNumberIdx: index("orders_shipmentNumber_idx").on(table.shipmentNumber),
+  customerEmailIdx: index("orders_customerEmail_idx").on(table.customerEmail),
+  customerPhoneIdx: index("orders_customerPhone_idx").on(table.customerPhone),
+}));
 
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
@@ -204,7 +221,10 @@ export const orderItems = mysqlTable("orderItems", {
   quantity: int("quantity").default(1),
   unitPrice: decimal("unitPrice", { precision: 12, scale: 2 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  orderIdIdx: index("orderItems_orderId_idx").on(table.orderId),
+  orderExternalIdIdx: index("orderItems_orderExternalId_idx").on(table.orderExternalId),
+}));
 
 export type OrderItem = typeof orderItems.$inferSelect;
 export type InsertOrderItem = typeof orderItems.$inferInsert;

@@ -1,0 +1,9 @@
+# 專案部署規則
+- 本專案為 CRM 系統 (crm-sales-dashboard)。
+- 正式環境 GCP Project ID 為 `hiemail-prod`。
+- Cloud Run 服務名稱為 `crm-production`。
+- 部署區域為 `asia-east1`。
+
+# 部署指令
+當使用者要求「部署」、「上線」時，請務必只提供或執行以下指令，嚴禁部署到其他服務（如 sb-store）：
+`gcloud run deploy crm-production --source . --region asia-east1 --project hiemail-prod`

@@ -26,7 +26,13 @@ import {
   batchImportOrders,
   batchImportProducts,
   batchImportLogistics,
+  type BatchImportResult,
 } from "../batchImport";
+import { mergeImportStatsHints, parseImportStatsHints, refreshCustomerStatsAfterImport } from "../customerStats";
+import { parseJobResultField } from "../../shared/importStats";
+import { clearRawData } from "../clearRawData";
+import { purgeImportJobStorage } from "../clearImportStorage";
+import { IMPORT_FILE_TYPE_PERMISSIONS, verifyImportJobAccess } from "../importAccess";
 import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { COOKIE_NAME } from "@shared/const";
@@ -36,6 +42,7 @@ import { getDb } from "../db";
 import type { PermissionKey } from "../../shared/permissions";
 import { importJobs, syncLogs } from "../../drizzle/schema";
 import { eq, sql } from "drizzle-orm";
+import { registerCronRoutes } from "../cronRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -128,13 +135,7 @@ async function startServer() {
     try {
       // Determine required permission based on file type
       const fileType = req.body?.type as string;
-      const permissionMap: Record<string, PermissionKey> = {
-        customers: "excel_import_customers",
-        orders: "excel_import_orders",
-        products: "excel_import_products",
-        logistics: "excel_import_logistics",
-      };
-      const requiredPerm = permissionMap[fileType] || "data_sync";
+      const requiredPerm = IMPORT_FILE_TYPE_PERMISSIONS[fileType] || "data_sync";
       const auth = await verifyAuthSession(req, requiredPerm);
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
@@ -192,7 +193,7 @@ async function startServer() {
         action: 'excel_import_start',
         category: 'data_sync',
         description: `開始匯入${typeLabels[fileType] || fileType}`,
-        details: { jobId, fileName, fileUrl },
+        details: { jobId, fileName },
       }).catch(() => {});
 
       res.json({
@@ -213,7 +214,7 @@ async function startServer() {
   // Phase 2 (subsequent calls, has jsonUrl): Download JSON → bulk INSERT chunk → return
   app.post("/api/import/process", async (req, res) => {
     try {
-      const auth = await verifyAuthSession(req, "data_sync");
+      const auth = await verifyAuthSession(req);
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
@@ -226,15 +227,16 @@ async function startServer() {
         return;
       }
 
+      const access = await verifyImportJobAccess(jobId, dbUser.id, dbUser.role);
+      if (!access.ok) {
+        res.status(access.status).json({ error: access.error });
+        return;
+      }
+      const job = access.job;
+
       const db = await getDb();
       if (!db) {
         res.status(500).json({ error: "資料庫不可用" });
-        return;
-      }
-
-      const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
-      if (!job) {
-        res.status(404).json({ error: "任務不存在" });
         return;
       }
 
@@ -270,7 +272,13 @@ async function startServer() {
         // PHASE 1: If no jsonUrl yet, parse Excel and store JSON to S3
         if (!job.jsonUrl) {
           console.log(`[Import] Job ${jobId}: Phase 1 - parsing Excel and storing JSON...`);
-          const parseResult = await parseAndStoreJson(jobId, job.fileUrl, job.fileType);
+          const parseResult = await parseAndStoreJson(
+            jobId,
+            job.fileUrl,
+            job.fileType,
+            job.fileName ?? undefined,
+            job.fileKey,
+          );
           res.json({
             status: "processing",
             ...parseResult,
@@ -323,6 +331,8 @@ async function startServer() {
           completedAt: new Date(),
         }).where(eq(importJobs.id, jobId));
 
+        await purgeImportJobStorage(jobId).catch(() => {});
+
         await logAudit({
           userId: dbUser.id,
           userName: dbUser.name || dbUser.email || 'unknown',
@@ -344,8 +354,8 @@ async function startServer() {
   app.post("/api/import/create-job", async (req, res) => {
     try {
       const ft = req.body?.fileType as string;
-      const pm: Record<string, PermissionKey> = { customers: "excel_import_customers", orders: "excel_import_orders", products: "excel_import_products", logistics: "excel_import_logistics" };
-      const auth = await verifyAuthSession(req, pm[ft] || "data_sync");
+      const requiredPerm = IMPORT_FILE_TYPE_PERMISSIONS[ft] || "data_sync";
+      const auth = await verifyAuthSession(req, requiredPerm);
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
@@ -398,15 +408,22 @@ async function startServer() {
   // ===== NEW: Batch import (receives JSON rows from frontend) =====
   app.post("/api/import/batch", async (req, res) => {
     try {
-      const auth = await verifyAuthSession(req, "data_sync");
+      const auth = await verifyAuthSession(req);
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
       }
+      const { dbUser } = auth;
 
       const { jobId, fileType, batch, offset, totalRows } = req.body;
       if (!jobId || !fileType || !batch || !Array.isArray(batch)) {
         res.status(400).json({ error: "缺少必要參數" });
+        return;
+      }
+
+      const access = await verifyImportJobAccess(jobId, dbUser.id, dbUser.role, fileType);
+      if (!access.ok) {
+        res.status(access.status).json({ error: access.error });
         return;
       }
 
@@ -417,7 +434,7 @@ async function startServer() {
         return;
       }
 
-      let result: { successRows: number; errorRows: number };
+      let result: BatchImportResult;
 
       switch (fileType) {
         case "customers":
@@ -440,15 +457,24 @@ async function startServer() {
       // Update job progress in DB
       const db = await getDb();
       if (db) {
-        const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
-        if (job) {
-          const newSuccess = (job.successRows || 0) + result.successRows;
-          const newError = (job.errorRows || 0) + result.errorRows;
+        const [freshJob] = await db
+          .select({ result: importJobs.result, successRows: importJobs.successRows, errorRows: importJobs.errorRows })
+          .from(importJobs)
+          .where(eq(importJobs.id, jobId));
+        if (freshJob) {
+          const newSuccess = (freshJob.successRows || 0) + result.successRows;
+          const newError = (freshJob.errorRows || 0) + result.errorRows;
           const newProcessed = newSuccess + newError;
+          const prevResult = parseJobResultField(freshJob.result);
+          const mergedHints = mergeImportStatsHints(
+            parseImportStatsHints(prevResult),
+            result.statsHints ?? {},
+          );
           await db.update(importJobs).set({
             processedRows: newProcessed,
             successRows: newSuccess,
             errorRows: newError,
+            result: { ...prevResult, statsHints: mergedHints },
           }).where(eq(importJobs.id, jobId));
         }
       }
@@ -463,136 +489,110 @@ async function startServer() {
   // ===== NEW: Complete import job =====
   app.post("/api/import/complete", async (req, res) => {
     try {
-      const auth = await verifyAuthSession(req, "data_sync");
+      const auth = await verifyAuthSession(req);
       if ("error" in auth) {
         res.status(auth.status).json({ error: auth.error });
         return;
       }
       const { dbUser } = auth;
-      const { jobId, successRows, errorRows } = req.body;
+      const { jobId, successRows, errorRows, statsHints: bodyStatsHints } = req.body;
 
       if (!jobId) {
         res.status(400).json({ error: "缺少 jobId" });
         return;
       }
 
+      const access = await verifyImportJobAccess(jobId, dbUser.id, dbUser.role);
+      if (!access.ok) {
+        res.status(access.status).json({ error: access.error });
+        return;
+      }
+      const job = access.job;
+
       const db = await getDb();
+      let statsRefreshed = false;
+      let statsRecalculated = 0;
+      let statsWarning: string | undefined;
+      let statsError: string | undefined;
+
       if (db) {
+        const [freshJob] = await db
+          .select({ result: importJobs.result })
+          .from(importJobs)
+          .where(eq(importJobs.id, jobId));
+        const prevResult = parseJobResultField(freshJob?.result);
+        const mergedHints = mergeImportStatsHints(
+          parseImportStatsHints(prevResult),
+          bodyStatsHints ?? {},
+        );
+
         await db.update(importJobs).set({
           status: "completed",
           processedRows: (successRows || 0) + (errorRows || 0),
           successRows: successRows || 0,
           errorRows: errorRows || 0,
           completedAt: new Date(),
+          result: { ...prevResult, statsHints: mergedHints },
         }).where(eq(importJobs.id, jobId));
 
-        // Get job info for audit log
-        const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
-        if (job) {
-          const typeLabels: Record<string, string> = {
-            customers: '顧客列表', orders: '訂單列表', products: '商品列表', logistics: '訂單物流檔',
-          };
-          await db.insert(syncLogs).values({
-            syncType: `excel-${job.fileType}`,
-            status: "success",
-            recordsProcessed: successRows || 0,
-          });
-          await logAudit({
-            userId: dbUser.id,
-            userName: dbUser.name || dbUser.email || 'unknown',
-            action: 'excel_import_complete',
-            category: 'data_sync',
-            description: `匯入${typeLabels[job.fileType] || job.fileType}完成`,
-            details: { jobId, successRows, errorRows },
-          }).catch(() => {});
-        }
-      }
+        const typeLabels: Record<string, string> = {
+          customers: '顧客列表', orders: '訂單列表', products: '商品列表', logistics: '訂單物流檔',
+        };
+        await db.insert(syncLogs).values({
+          syncType: `excel-${job.fileType}`,
+          status: "success",
+          recordsProcessed: successRows || 0,
+        });
+        await logAudit({
+          userId: dbUser.id,
+          userName: dbUser.name || dbUser.email || 'unknown',
+          action: 'excel_import_complete',
+          category: 'data_sync',
+          description: `匯入${typeLabels[job.fileType] || job.fileType}完成`,
+          details: { jobId, successRows, errorRows },
+        }).catch(() => {});
 
-      // After order import completes, update customer stats
-      if (db) {
-        const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
-        if (job && (job.fileType === 'orders' || job.fileType === 'logistics')) {
-          console.log('[Complete Job] Updating customer stats from orders...');
+        // After import completes, link orders and recalculate customer stats (scoped to affected customers)
+        if (job.fileType === "customers" || job.fileType === "orders" || job.fileType === "logistics") {
+          console.log(`[Complete Job] Refreshing customer stats (trigger: ${job.fileType})...`);
           try {
-            // Use efficient SQL aggregate to update all customer stats at once
-            await db.execute(sql.raw(`
-              UPDATE customers c
-              INNER JOIN (
-                SELECT 
-                  customerId,
-                  COUNT(*) as totalOrders,
-                  SUM(CAST(total AS DECIMAL(12,2))) as totalSpent,
-                  MAX(orderDate) as lastPurchaseDate,
-                  MAX(shippedAt) as lastShipmentAt
-                FROM orders
-                WHERE customerId IS NOT NULL AND orderStatus != -1 AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
-                GROUP BY customerId
-              ) o ON c.id = o.customerId
-              SET 
-                c.totalOrders = o.totalOrders,
-                c.totalSpent = o.totalSpent,
-                c.lastPurchaseDate = o.lastPurchaseDate,
-                c.lastShipmentAt = o.lastShipmentAt
-            `));
-
-            // Update lastPurchaseAmount separately (need the order with max orderDate)
-            await db.execute(sql.raw(`
-              UPDATE customers c
-              INNER JOIN (
-                SELECT o1.customerId, o1.total as lastAmount
-                FROM orders o1
-                INNER JOIN (
-                  SELECT customerId, MAX(orderDate) as maxDate
-                  FROM orders
-                  WHERE customerId IS NOT NULL AND orderStatus != -1 AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
-                  GROUP BY customerId
-                ) o2 ON o1.customerId = o2.customerId AND o1.orderDate = o2.maxDate
-                WHERE o1.orderStatus != -1 AND (o1.orderStatusText = '已完成' OR o1.orderStatusText IS NULL) AND (o1.shippingStatus IS NULL OR o1.shippingStatus != '已退貨')
-              ) latest ON c.id = latest.customerId
-              SET c.lastPurchaseAmount = latest.lastAmount
-            `));
-
-            // Update lifecycle classification (NASLDO)
-            await db.execute(sql.raw(`
-              UPDATE customers SET lifecycle = CASE
-                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'N'
-                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'A'
-                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders > 1 THEN 'S'
-                WHEN lastShipmentAt >= DATE_SUB(NOW(), INTERVAL 365 DAY) AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 180 DAY) AND totalOrders = 1 THEN 'L'
-                WHEN lastShipmentAt IS NOT NULL AND lastShipmentAt < DATE_SUB(NOW(), INTERVAL 365 DAY) THEN 'D'
-                ELSE 'O'
-              END
-              WHERE totalOrders > 0
-            `));
-
-            // Update avgRepurchaseDays
-            await db.execute(sql.raw(`
-              UPDATE customers c
-              JOIN (
-                SELECT 
-                  customerId,
-                  ROUND(AVG(day_diff)) as avg_days
-                FROM (
-                  SELECT 
-                    customerId,
-                    DATEDIFF(orderDate, LAG(orderDate) OVER (PARTITION BY customerId ORDER BY orderDate)) as day_diff
-                  FROM orders
-                  WHERE customerId IS NOT NULL AND orderStatus != -1 AND (orderStatusText = '已完成' OR orderStatusText IS NULL) AND (shippingStatus IS NULL OR shippingStatus != '已退貨')
-                ) diffs
-                WHERE day_diff IS NOT NULL AND day_diff > 0
-                GROUP BY customerId
-              ) stats ON c.id = stats.customerId
-              SET c.avgRepurchaseDays = stats.avg_days
-            `));
-
-            console.log('[Complete Job] Customer stats, lifecycle, and avgRepurchaseDays updated successfully');
+            const statsResult = await refreshCustomerStatsAfterImport(db, mergedHints);
+            statsRefreshed = true;
+            statsRecalculated = statsResult.recalculated;
+            statsWarning = statsResult.warning;
+            console.log(
+              `[Complete Job] Customer stats updated: recalculated=${statsResult.recalculated}, fullRecalc=${!!statsResult.fullRecalc}`,
+            );
           } catch (statsErr: any) {
-            console.error('[Complete Job] Stats update error:', statsErr.message);
+            statsError = statsErr.message || "統計更新失敗";
+            console.error("[Complete Job] Stats update error:", statsError);
+          }
+        }
+
+        const rawDataTables: Array<"customers" | "orders" | "products"> =
+          job.fileType === "customers" ? ["customers"]
+          : job.fileType === "orders" || job.fileType === "logistics" ? ["orders"]
+          : job.fileType === "products" ? ["products"]
+          : [];
+        if (rawDataTables.length > 0) {
+          try {
+            await clearRawData(rawDataTables);
+            console.log(`[Complete Job] Cleared rawData for ${rawDataTables.join(", ")}`);
+          } catch (clearErr: any) {
+            console.error("[Complete Job] clearRawData error:", clearErr.message);
           }
         }
       }
 
-      res.json({ success: true });
+      await purgeImportJobStorage(jobId).catch(() => {});
+
+      res.json({
+        success: true,
+        statsRefreshed,
+        statsRecalculated,
+        statsWarning,
+        statsError,
+      });
     } catch (error: any) {
       console.error("[Complete Job] Error:", error);
       res.status(500).json({ error: error.message || "完成任務失敗" });
@@ -611,9 +611,16 @@ async function startServer() {
    * externalId 為唯一識別碼（如 bazi_member_123），存在則更新，不存在則建立
    */
   app.post("/api/v1/customers/upsert", async (req: express.Request, res: express.Response) => {
-    // API Key 驗證
     const apiKey = process.env.CRM_API_KEY;
-    if (apiKey && req.headers["x-api-key"] !== apiKey) {
+    const providedKey = req.headers["x-api-key"];
+
+    if (!apiKey) {
+      console.error("[CRM Upsert] CRM_API_KEY is not configured — rejecting request");
+      res.status(503).json({ success: false, error: "Service unavailable" });
+      return;
+    }
+
+    if (typeof providedKey !== "string" || providedKey !== apiKey) {
       res.status(401).json({ success: false, error: "Unauthorized" });
       return;
     }
@@ -684,6 +691,8 @@ async function startServer() {
       res.status(500).json({ success: false, error: error.message || "Internal server error" });
     }
   });
+
+  registerCronRoutes(app);
 
   // tRPC API
   app.use(

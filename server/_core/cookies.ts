@@ -46,3 +46,16 @@ export function getSessionCookieOptions(
     secure: isSecureRequest(req),
   };
 }
+
+/** OAuth state cookie — top-level redirect back from Google works with SameSite=Lax. */
+export function getOAuthStateCookieOptions(
+  req: Request
+): Pick<CookieOptions, "httpOnly" | "path" | "sameSite" | "secure"> {
+  const isProduction = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    path: "/",
+    sameSite: "lax",
+    secure: isProduction || isSecureRequest(req),
+  };
+}

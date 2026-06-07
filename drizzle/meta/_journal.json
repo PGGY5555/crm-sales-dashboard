@@ -113,6 +113,20 @@
       "when": 1773131180576,
       "tag": "0015_closed_ultimo",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1780735108088,
+      "tag": "0016_abandoned_caretaker",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1780759031843,
+      "tag": "0017_harsh_dagger",
+      "breakpoints": true
     }
   ]
 }

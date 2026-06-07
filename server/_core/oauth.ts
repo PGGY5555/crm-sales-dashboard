@@ -1,10 +1,10 @@
 import crypto from "crypto";
 import { OAuth2Client } from "google-auth-library";
 import { parse as parseCookieHeader } from "cookie";
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS, PENDING_2FA_COOKIE_NAME, PENDING_2FA_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
-import { loginWithGoogleUser } from "../db";
-import { getSessionCookieOptions } from "./cookies";
+import { getUserByOpenId, loginWithGoogleUser } from "../db";
+import { getOAuthStateCookieOptions, getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import { sdk } from "./sdk";
 
@@ -59,9 +59,16 @@ export function registerAuthRoutes(app: Express) {
       prompt: "select_account",
     });
 
-    const cookieOptions = getSessionCookieOptions(req);
+    const oauthCookieOptions = getOAuthStateCookieOptions(req);
+    console.log("[Google OAuth] Setting state cookie", {
+      sameSite: oauthCookieOptions.sameSite,
+      secure: oauthCookieOptions.secure,
+      path: oauthCookieOptions.path,
+      nodeEnv: process.env.NODE_ENV,
+      state,
+    });
     res.cookie(OAUTH_STATE_COOKIE, state, {
-      ...cookieOptions,
+      ...oauthCookieOptions,
       maxAge: 10 * 60 * 1000,
     });
 
@@ -73,8 +80,7 @@ export function registerAuthRoutes(app: Express) {
     const state = getQueryParam(req, "state");
     const error = getQueryParam(req, "error");
     const cookieOptions = getSessionCookieOptions(req);
-
-    res.clearCookie(OAUTH_STATE_COOKIE, { ...cookieOptions, maxAge: -1 });
+    const oauthCookieOptions = getOAuthStateCookieOptions(req);
 
     if (error) {
       console.error("[Google OAuth] User denied consent:", error);
@@ -89,10 +95,22 @@ export function registerAuthRoutes(app: Express) {
 
     const cookies = parseCookieHeader(req.headers.cookie || "");
     const savedState = cookies[OAUTH_STATE_COOKIE];
+
+    console.log("[Google OAuth] State check", {
+      queryState: state,
+      cookieState: savedState ?? "(missing)",
+      match: savedState === state,
+      cookieHeader: req.headers.cookie ?? "(none)",
+      oauthCookieOptions,
+    });
+
     if (!savedState || savedState !== state) {
+      res.clearCookie(OAUTH_STATE_COOKIE, { ...oauthCookieOptions, maxAge: -1 });
       res.status(400).json({ error: "OAuth state 驗證失敗" });
       return;
     }
+
+    res.clearCookie(OAUTH_STATE_COOKIE, { ...oauthCookieOptions, maxAge: -1 });
 
     if (!ENV.googleClientId || !ENV.googleClientSecret) {
       res.status(500).json({ error: "Google OAuth 未設定" });
@@ -131,6 +149,23 @@ export function registerAuthRoutes(app: Express) {
 
       await loginWithGoogleUser(profile);
 
+      const user = await getUserByOpenId(profile.openId);
+
+      if (user?.twoFactorEnabled) {
+        const pendingToken = await sdk.createPending2FAToken(profile.openId, {
+          name: profile.name || user.name || "",
+          email: profile.email ?? user.email ?? undefined,
+        });
+
+        res.cookie(PENDING_2FA_COOKIE_NAME, pendingToken, {
+          ...cookieOptions,
+          maxAge: PENDING_2FA_MS,
+        });
+
+        res.redirect(302, "/auth/2fa");
+        return;
+      }
+
       const sessionToken = await sdk.createSessionToken(profile.openId, {
         name: profile.name || "",
         email: profile.email ?? undefined,
@@ -144,8 +179,9 @@ export function registerAuthRoutes(app: Express) {
 
       res.redirect(302, "/");
     } catch (err) {
-      console.error("[Google OAuth] Callback failed:", err);
-      res.status(500).json({ error: "Google 登入失敗" });
+      console.error("Google OAuth Error:", err);
+      const details = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: "Google 登入失敗", details });
     }
   });
 }

@@ -2,14 +2,28 @@
  * Batch Import: Receives pre-parsed JSON rows from the frontend and bulk-inserts them.
  * Each HTTP request handles one batch (~500 rows), completing in 2-5 seconds.
  */
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
-import { customers, orders, orderItems, products, syncLogs, importJobs } from "../drizzle/schema";
-import { classifyCustomer, calculateRepurchaseDays } from "./sync";
-import { clearRawData } from "./clearRawData";
+import { customers, orders, orderItems, products } from "../drizzle/schema";
+import {
+  getCustomerExternalId,
+  getCustomerIdentityFields,
+  isOrderShipped,
+  normalizeCustomerImportRow,
+  normalizeOrderImportRow,
+  pickOrderShippingAddress,
+  pickOrderString,
+} from "../shared/importFieldMapping";
+import type { ImportStatsHints } from "./customerStats";
 
 // Sub-batch size for bulk SQL
 const SQL_BATCH = 500;
+
+export type BatchImportResult = {
+  successRows: number;
+  errorRows: number;
+  statsHints?: ImportStatsHints;
+};
 
 // ===== Helpers =====
 
@@ -34,16 +48,11 @@ function parseNum(val: string | number | undefined | null): number {
 function mapOrderStatus(statusText: string | undefined): number {
   if (!statusText) return 0;
   const s = String(statusText).trim();
-  if (s.includes("取消") || s.includes("作廢")) return -1;
+  if (s.includes("取消") || s.includes("作廢") || s.includes("退貨")) return -1;
   if (s.includes("完成") || s.includes("已完成")) return 2;
+  if (s.includes("已出貨")) return 2;
   if (s.includes("確認") || s.includes("處理中")) return 1;
   return 0;
-}
-
-function isShippedFromText(statusText: string | undefined): boolean {
-  if (!statusText) return false;
-  const s = String(statusText).trim();
-  return s.includes("已出貨") || s.includes("已送達") || s.includes("完成") || s.includes("已到貨");
 }
 
 function esc(val: string | null | undefined): string {
@@ -63,32 +72,38 @@ function escJson(obj: any): string {
 
 // ===== Batch Customer Import =====
 
-export async function batchImportCustomers(batch: any[]): Promise<{ successRows: number; errorRows: number }> {
+export async function batchImportCustomers(batch: any[]): Promise<BatchImportResult> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   let successCount = 0;
   let errorCount = 0;
+  const statsHints: ImportStatsHints = {
+    customerIds: [],
+    emails: [],
+    phones: [],
+  };
 
   for (let i = 0; i < batch.length; i += SQL_BATCH) {
     const subBatch = batch.slice(i, i + SQL_BATCH);
     const validRows: any[] = [];
+    const batchExternalIds: string[] = [];
 
-    for (const row of subBatch) {
-      const name = row["顧客名稱"]?.trim?.() || (typeof row["顧客名稱"] === "string" ? row["顧客名稱"] : "");
-      const email = row["電子信箱"]?.trim?.() || "";
-      const phone = row["電話"]?.trim?.() || (typeof row["電話"] === "number" ? String(row["電話"]) : "");
+    for (const rawRow of subBatch) {
+      const row = normalizeCustomerImportRow(rawRow);
+      const { name, email, phone } = getCustomerIdentityFields(row);
       if (!name && !email && !phone) { errorCount++; continue; }
       validRows.push(row);
+      if (email) statsHints.emails!.push(email);
+      if (phone) statsHints.phones!.push(phone);
     }
 
     if (validRows.length > 0) {
       try {
         const values = validRows.map((row, idx) => {
-          const name = (typeof row["顧客名稱"] === "string" ? row["顧客名稱"].trim() : String(row["顧客名稱"] || "")) || null;
-          const email = (typeof row["電子信箱"] === "string" ? row["電子信箱"].trim() : "") || null;
-          const phone = (typeof row["電話"] === "string" ? row["電話"].trim() : typeof row["電話"] === "number" ? String(row["電話"]) : "") || null;
-          const extId = email || phone || `excel_${i + idx}_${Date.now()}`;
+          const { name, email, phone } = getCustomerIdentityFields(row);
+          const extId = getCustomerExternalId(row, `excel_${i + idx}_${Date.now()}`);
+          batchExternalIds.push(extId);
           const birthday = (typeof row["生日"] === "string" ? row["生日"].trim() : "") || null;
           const tags = (typeof row["會員標籤"] === "string" ? row["會員標籤"].trim() : "") || null;
           const memberLevel = (typeof row["會員等級"] === "string" ? row["會員等級"].trim() : "") || null;
@@ -160,6 +175,15 @@ ON DUPLICATE KEY UPDATE
 
         await db.execute(sql.raw(bulkSql));
         successCount += validRows.length;
+
+        for (let j = 0; j < batchExternalIds.length; j += SQL_BATCH) {
+          const idSlice = batchExternalIds.slice(j, j + SQL_BATCH);
+          const rows = await db
+            .select({ id: customers.id })
+            .from(customers)
+            .where(inArray(customers.externalId, idSlice));
+          for (const row of rows) statsHints.customerIds!.push(row.id);
+        }
       } catch (batchErr: any) {
         console.error("[BatchImport] Customer batch error:", batchErr.message);
         errorCount += validRows.length;
@@ -167,47 +191,128 @@ ON DUPLICATE KEY UPDATE
     }
   }
 
-  // Clear rawData after successful customer batch import
-  await clearRawData(["customers"]);
-  console.log(`[BatchImport] Cleared rawData for customers table`);
+  return {
+    successRows: successCount,
+    errorRows: errorCount,
+    statsHints: {
+      customerIds: Array.from(new Set(statsHints.customerIds ?? [])),
+      emails: Array.from(new Set(statsHints.emails ?? [])),
+      phones: Array.from(new Set(statsHints.phones ?? [])),
+    },
+  };
+}
 
-  return { successRows: successCount, errorRows: errorCount };
+async function buildCustomerLookupMaps(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  batch: any[],
+) {
+  const emails = new Set<string>();
+  const phones = new Set<string>();
+
+  for (const entry of batch) {
+    if (!entry?.items?.length) continue;
+    const firstRow = normalizeOrderImportRow(entry.items[0]);
+    const email = pickOrderString(firstRow, "顧客 Email");
+    const phone = pickOrderString(firstRow, "顧客手機");
+    if (email) emails.add(email);
+    if (phone) phones.add(phone);
+  }
+
+  const byEmail = new Map<string, number>();
+  const byPhone = new Map<string, number>();
+
+  const emailList = Array.from(emails);
+  for (let i = 0; i < emailList.length; i += SQL_BATCH) {
+    const slice = emailList.slice(i, i + SQL_BATCH);
+    const lowerSlice = slice.map((e) => e.toLowerCase());
+    const rows = await db
+      .select({ id: customers.id, email: customers.email })
+      .from(customers)
+      .where(sql`LOWER(${customers.email}) IN (${sql.join(lowerSlice.map((e) => sql`${e}`), sql`, `)})`);
+    for (const row of rows) {
+      if (row.email) byEmail.set(row.email.toLowerCase(), row.id);
+    }
+  }
+
+  const phoneList = Array.from(phones);
+  for (let i = 0; i < phoneList.length; i += SQL_BATCH) {
+    const slice = phoneList.slice(i, i + SQL_BATCH);
+    const rows = await db
+      .select({ id: customers.id, phone: customers.phone })
+      .from(customers)
+      .where(inArray(customers.phone, slice));
+    for (const row of rows) {
+      if (row.phone) byPhone.set(row.phone, row.id);
+    }
+  }
+
+  return { byEmail, byPhone };
+}
+
+function resolveCustomerId(
+  email: string | null,
+  phone: string | null,
+  byEmail: Map<string, number>,
+  byPhone: Map<string, number>,
+): number | null {
+  if (email) {
+    const byEmailKey = email.toLowerCase();
+    if (byEmail.has(byEmailKey)) return byEmail.get(byEmailKey)!;
+  }
+  if (phone && byPhone.has(phone)) return byPhone.get(phone)!;
+  return null;
 }
 
 // ===== Batch Order Import =====
 
-export async function batchImportOrders(batch: any[]): Promise<{ successRows: number; errorRows: number }> {
+export async function batchImportOrders(batch: any[]): Promise<BatchImportResult> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const { byEmail, byPhone } = await buildCustomerLookupMaps(db, batch);
+
   let successCount = 0;
   let errorCount = 0;
+  const statsHints: ImportStatsHints = {
+    customerIds: [],
+    emails: [],
+    phones: [],
+    orderExternalIds: [],
+  };
+  const importedOrderNums: string[] = [];
+  const pendingItems: Array<{
+    orderNum: string;
+    productName: string;
+    productSku: string | null;
+    productSpec: string | null;
+    quantity: number;
+    unitPrice: string;
+  }> = [];
 
   for (const entry of batch) {
     const orderNum = entry.orderNum;
     const orderRows = entry.items;
+    if (!orderNum || !orderRows?.length) {
+      errorCount++;
+      continue;
+    }
+
     try {
-      const firstRow = orderRows[0];
-      const orderDate = parseDate(firstRow["訂單建立時間"]);
-      const shippedAt = parseDate(firstRow["出貨單日期"]);
-      const totalAmount = parseNum(firstRow["訂單總計"]);
-      const customerEmail = firstRow["會員信箱"]?.trim?.() || firstRow["顧客信箱"]?.trim?.() || null;
-      const customerName = firstRow["顧客姓名"]?.trim?.() || null;
-      const customerPhone = firstRow["顧客手機"]?.trim?.() || (typeof firstRow["顧客手機"] === "number" ? String(firstRow["顧客手機"]) : null);
-
-      let customerId: number | null = null;
-      if (customerEmail || customerPhone) {
-        const lookupField = customerEmail ? "email" : "phone";
-        const lookupVal = customerEmail || customerPhone;
-        const [found] = await db.select({ id: customers.id }).from(customers).where(eq(
-          lookupField === "email" ? customers.email : customers.phone,
-          lookupVal!
-        )).limit(1);
-        if (found) customerId = found.id;
-      }
-
-      const statusNum = mapOrderStatus(firstRow["訂單處理狀態"]);
-      const shipped = isShippedFromText(firstRow["出貨狀態"]) || !!shippedAt;
+      const firstRow = normalizeOrderImportRow(orderRows[0]);
+      const orderDate = parseDate(pickOrderString(firstRow, "訂單日期"));
+      const shippedAt = parseDate(pickOrderString(firstRow, "出貨日期"));
+      const totalAmount = parseNum(pickOrderString(firstRow, "訂單金額"));
+      const customerEmail = pickOrderString(firstRow, "顧客 Email") || null;
+      const customerName = pickOrderString(firstRow, "顧客") || null;
+      const customerPhone = pickOrderString(firstRow, "顧客手機") || null;
+      const customerId = resolveCustomerId(customerEmail, customerPhone, byEmail, byPhone);
+      if (customerId) statsHints.customerIds!.push(customerId);
+      if (customerEmail) statsHints.emails!.push(customerEmail);
+      if (customerPhone) statsHints.phones!.push(customerPhone);
+      statsHints.orderExternalIds!.push(orderNum);
+      const statusNum = mapOrderStatus(pickOrderString(firstRow, "訂單狀態"));
+      const shipped = isOrderShipped(firstRow, shippedAt);
+      const paymentStatus = pickOrderString(firstRow, "付款狀態") || null;
 
       await db.insert(orders).values({
         externalId: orderNum,
@@ -218,49 +323,50 @@ export async function batchImportOrders(batch: any[]): Promise<{ successRows: nu
         total: String(totalAmount),
         orderStatus: statusNum,
         isShipped: shipped,
-        paymentMethod: firstRow["付款方式"]?.trim?.() || null,
-        shippingMethod: firstRow["配送方式"]?.trim?.() || null,
-        recipientName: firstRow["收件人姓名"]?.trim?.() || null,
-        recipientPhone: firstRow["收件人手機"]?.trim?.() || (typeof firstRow["收件人手機"] === "number" ? String(firstRow["收件人手機"]) : null),
-        recipientEmail: firstRow["收件人信箱"]?.trim?.() || null,
-        shippingAddress: firstRow["收貨地址"]?.trim?.() || null,
-        orderSource: firstRow["訂單來源"]?.trim?.() || null,
-        shipmentNumber: firstRow["出貨單號碼"]?.trim?.() || (typeof firstRow["出貨單號碼"] === "number" ? String(firstRow["出貨單號碼"]) : null),
-        shippingStatus: firstRow["出貨狀態"]?.trim?.() || null,
-        orderStatusText: firstRow["訂單狀態"]?.trim?.() || firstRow["訂單處理狀態"]?.trim?.() || null,
+        progress: paymentStatus,
+        paymentMethod: pickOrderString(firstRow, "付款方式") || null,
+        shippingMethod: pickOrderString(firstRow, "寄送方式") || null,
+        recipientName: pickOrderString(firstRow, "收件人名") || null,
+        recipientPhone: pickOrderString(firstRow, "收件人電話") || null,
+        shippingAddress: pickOrderShippingAddress(firstRow) || null,
+        shipmentNumber: pickOrderString(firstRow, "出貨單號") || null,
+        shippingStatus: pickOrderString(firstRow, "出貨狀態") || null,
+        orderStatusText: pickOrderString(firstRow, "訂單狀態") || null,
         rawData: firstRow,
       }).onDuplicateKeyUpdate({
         set: {
           customerId, customerName, customerEmail, customerPhone,
           orderDate, shippedAt, total: String(totalAmount),
           orderStatus: statusNum, isShipped: shipped,
-          shipmentNumber: firstRow["出貨單號碼"]?.trim?.() || (typeof firstRow["出貨單號碼"] === "number" ? String(firstRow["出貨單號碼"]) : null),
-          shippingStatus: firstRow["出貨狀態"]?.trim?.() || null,
-          orderStatusText: firstRow["訂單狀態"]?.trim?.() || firstRow["訂單處理狀態"]?.trim?.() || null,
+          progress: paymentStatus,
+          paymentMethod: pickOrderString(firstRow, "付款方式") || null,
+          shippingMethod: pickOrderString(firstRow, "寄送方式") || null,
+          recipientName: pickOrderString(firstRow, "收件人名") || null,
+          recipientPhone: pickOrderString(firstRow, "收件人電話") || null,
+          shippingAddress: pickOrderShippingAddress(firstRow) || null,
+          shipmentNumber: pickOrderString(firstRow, "出貨單號") || null,
+          shippingStatus: pickOrderString(firstRow, "出貨狀態") || null,
+          orderStatusText: pickOrderString(firstRow, "訂單狀態") || null,
           rawData: firstRow,
         },
       });
 
-      const [insertedOrder] = await db.select({ id: orders.id }).from(orders).where(eq(orders.externalId, orderNum)).limit(1);
-      if (insertedOrder) {
-        for (const itemRow of orderRows) {
-          const productName = itemRow["商品名稱"]?.trim?.() || null;
-          if (!productName) continue;
-          try {
-            await db.insert(orderItems).values({
-              orderId: insertedOrder.id,
-              orderExternalId: orderNum,
-              productName,
-              productSku: itemRow["商品SKU"]?.trim?.() || null,
-              productSpec: itemRow["商品規格"]?.trim?.() || null,
-              quantity: parseNum(itemRow["商品購買數量"]) || 1,
-              unitPrice: String(parseNum(itemRow["商品價格"])),
-            }).onDuplicateKeyUpdate({
-              set: { quantity: parseNum(itemRow["商品購買數量"]) || 1, unitPrice: String(parseNum(itemRow["商品價格"])) },
-            });
-          } catch {}
-        }
+      importedOrderNums.push(orderNum);
+
+      for (const itemRow of orderRows) {
+        const normalizedItem = normalizeOrderImportRow(itemRow);
+        const productName = pickOrderString(normalizedItem, "品名") || null;
+        if (!productName) continue;
+        pendingItems.push({
+          orderNum,
+          productName,
+          productSku: pickOrderString(normalizedItem, "SKU") || null,
+          productSpec: pickOrderString(normalizedItem, "規格") || null,
+          quantity: parseNum(pickOrderString(normalizedItem, "數量")) || 1,
+          unitPrice: String(parseNum(pickOrderString(normalizedItem, "單價"))),
+        });
       }
+
       successCount++;
     } catch (err: any) {
       console.error(`[BatchImport] Order ${orderNum} error:`, err.message);
@@ -268,16 +374,61 @@ export async function batchImportOrders(batch: any[]): Promise<{ successRows: nu
     }
   }
 
-  // Clear rawData after successful order batch import
-  await clearRawData(["orders"]);
-  console.log(`[BatchImport] Cleared rawData for orders table`);
+  if (importedOrderNums.length > 0 && pendingItems.length > 0) {
+    for (let i = 0; i < importedOrderNums.length; i += SQL_BATCH) {
+      const slice = importedOrderNums.slice(i, i + SQL_BATCH);
+      await db.delete(orderItems).where(inArray(orderItems.orderExternalId, slice));
+    }
 
-  return { successRows: successCount, errorRows: errorCount };
+    const orderIdMap = new Map<string, number>();
+    for (let i = 0; i < importedOrderNums.length; i += SQL_BATCH) {
+      const slice = importedOrderNums.slice(i, i + SQL_BATCH);
+      const rows = await db
+        .select({ id: orders.id, externalId: orders.externalId })
+        .from(orders)
+        .where(inArray(orders.externalId, slice));
+      for (const row of rows) {
+        orderIdMap.set(row.externalId, row.id);
+      }
+    }
+
+    for (let i = 0; i < pendingItems.length; i += SQL_BATCH) {
+      const subBatch = pendingItems.slice(i, i + SQL_BATCH);
+      const rowsToInsert = subBatch.flatMap((item) => {
+        const orderId = orderIdMap.get(item.orderNum);
+        if (!orderId) return [];
+        return [{
+          orderId,
+          orderExternalId: item.orderNum,
+          productName: item.productName,
+          productSku: item.productSku,
+          productSpec: item.productSpec,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        }];
+      });
+
+      if (rowsToInsert.length === 0) continue;
+
+      await db.insert(orderItems).values(rowsToInsert);
+    }
+  }
+
+  return {
+    successRows: successCount,
+    errorRows: errorCount,
+    statsHints: {
+      customerIds: Array.from(new Set(statsHints.customerIds ?? [])),
+      emails: Array.from(new Set(statsHints.emails ?? [])),
+      phones: Array.from(new Set(statsHints.phones ?? [])),
+      orderExternalIds: Array.from(new Set(statsHints.orderExternalIds ?? [])),
+    },
+  };
 }
 
 // ===== Batch Product Import =====
 
-export async function batchImportProducts(batch: any[]): Promise<{ successRows: number; errorRows: number }> {
+export async function batchImportProducts(batch: any[]): Promise<BatchImportResult> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -300,21 +451,18 @@ export async function batchImportProducts(batch: any[]): Promise<{ successRows: 
     } catch { errorCount++; }
   }
 
-  // Clear rawData after successful product batch import
-  await clearRawData(["products"]);
-  console.log(`[BatchImport] Cleared rawData for products table`);
-
   return { successRows: successCount, errorRows: errorCount };
 }
 
 // ===== Batch Logistics Import =====
 
-export async function batchImportLogistics(batch: any[]): Promise<{ successRows: number; errorRows: number }> {
+export async function batchImportLogistics(batch: any[]): Promise<BatchImportResult> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   let successCount = 0;
   let errorCount = 0;
+  const shipmentNumbers: string[] = [];
 
   for (const row of batch) {
     try {
@@ -329,6 +477,7 @@ export async function batchImportLogistics(batch: any[]): Promise<{ successRows:
         logisticsStatus,
       }).where(eq(orders.shipmentNumber, payNowNum));
 
+      shipmentNumbers.push(payNowNum);
       successCount++;
     } catch (err: any) {
       console.error("[BatchImport] Logistics error:", err.message);
@@ -336,9 +485,23 @@ export async function batchImportLogistics(batch: any[]): Promise<{ successRows:
     }
   }
 
-  // Clear rawData after successful logistics batch import (orders table)
-  await clearRawData(["orders"]);
-  console.log(`[BatchImport] Cleared rawData for orders table (logistics)`);
+  const customerIds: number[] = [];
+  for (let i = 0; i < shipmentNumbers.length; i += SQL_BATCH) {
+    const slice = shipmentNumbers.slice(i, i + SQL_BATCH);
+    const rows = await db
+      .select({ customerId: orders.customerId })
+      .from(orders)
+      .where(inArray(orders.shipmentNumber, slice));
+    for (const row of rows) {
+      if (row.customerId) customerIds.push(row.customerId);
+    }
+  }
 
-  return { successRows: successCount, errorRows: errorCount };
+  return {
+    successRows: successCount,
+    errorRows: errorCount,
+    statsHints: {
+      customerIds: Array.from(new Set(customerIds)),
+    },
+  };
 }

@@ -3,6 +3,13 @@
  * Provides parseExcelFile (read) and exportToExcelFile (write) helpers.
  */
 import ExcelJS from "exceljs";
+import { parseWorksheetRows } from "@shared/excelWorksheet";
+import {
+  assertSpreadsheetFormatSupported,
+  detectSpreadsheetFormat,
+  getSpreadsheetParseErrorMessage,
+  parseCsvToRows,
+} from "@shared/spreadsheetParse";
 
 /**
  * Parse an Excel File into an array of JSON objects.
@@ -10,59 +17,24 @@ import ExcelJS from "exceljs";
  */
 export async function parseExcelFile(file: File): Promise<Record<string, any>[]> {
   const arrayBuffer = await file.arrayBuffer();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(arrayBuffer);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet || worksheet.rowCount === 0) return [];
+  const format = detectSpreadsheetFormat(arrayBuffer, file.name);
+  assertSpreadsheetFormatSupported(format);
 
-  const headers: string[] = [];
-  const headerRow = worksheet.getRow(1);
-  headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-    headers[colNumber - 1] = String(cell.value ?? "").trim();
-  });
-
-  if (headers.length === 0) return [];
-
-  const rows: Record<string, any>[] = [];
-  for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-    const row = worksheet.getRow(rowIndex);
-    const obj: Record<string, any> = {};
-    let hasValue = false;
-
-    for (let colIndex = 0; colIndex < headers.length; colIndex++) {
-      const header = headers[colIndex];
-      if (!header) continue;
-
-      const cell = row.getCell(colIndex + 1);
-      let value: any = cell.value;
-
-      // Handle ExcelJS rich text objects
-      if (value && typeof value === "object") {
-        if ("richText" in value) {
-          value = (value as any).richText.map((rt: any) => rt.text).join("");
-        } else if ("text" in value) {
-          value = (value as any).text;
-        } else if ("result" in value) {
-          value = (value as any).result;
-        } else if (value instanceof Date) {
-          // Keep Date as-is
-        } else {
-          value = String(value);
-        }
-      }
-
-      obj[header] = value ?? "";
-      if (value !== null && value !== undefined && value !== "") {
-        hasValue = true;
-      }
-    }
-
-    if (hasValue) {
-      rows.push(obj);
-    }
+  if (format === "csv") {
+    return parseCsvToRows(arrayBuffer);
   }
 
-  return rows;
+  const workbook = new ExcelJS.Workbook();
+  try {
+    await workbook.xlsx.load(arrayBuffer);
+  } catch (err) {
+    throw new Error(getSpreadsheetParseErrorMessage(err, format));
+  }
+
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+
+  return parseWorksheetRows(worksheet) as Record<string, any>[];
 }
 
 /**
@@ -72,6 +44,7 @@ export async function exportToExcelFile(
   data: Record<string, any>[],
   fileName: string,
   sheetName: string = "Sheet1",
+  headers?: string[],
 ): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet(sheetName);
@@ -83,12 +56,11 @@ export async function exportToExcelFile(
     return;
   }
 
-  // Use keys from first row as headers
-  const headers = Object.keys(data[0]);
-  worksheet.addRow(headers);
+  const columnHeaders = headers?.length ? headers : Object.keys(data[0]);
+  worksheet.addRow(columnHeaders);
 
   for (const row of data) {
-    const values = headers.map((h) => row[h] ?? "");
+    const values = columnHeaders.map((h) => row[h] ?? "");
     worksheet.addRow(values);
   }
 
@@ -109,3 +81,4 @@ function downloadBuffer(buffer: ExcelJS.Buffer, fileName: string) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+

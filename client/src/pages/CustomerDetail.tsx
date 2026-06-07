@@ -524,6 +524,7 @@ export default function CustomerDetail() {
                   <TableHead className="min-w-[80px]">訂單來源</TableHead>
                   <TableHead className="min-w-[80px]">付款方式</TableHead>
                   <TableHead className="min-w-[80px]">配送方式</TableHead>
+                  <TableHead className="min-w-[80px]">訂單狀態</TableHead>
                   <TableHead className="min-w-[80px]">出貨狀態</TableHead>
                   <TableHead className="min-w-[100px] text-right">訂單金額</TableHead>
                   <TableHead className="min-w-[200px]">商品明細</TableHead>
@@ -532,7 +533,7 @@ export default function CustomerDetail() {
               <TableBody>
                 {orders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                       此客戶尚無訂單記錄
                     </TableCell>
                   </TableRow>
@@ -553,6 +554,7 @@ export default function CustomerDetail() {
                       <TableCell className="text-sm">{order.orderSource || "-"}</TableCell>
                       <TableCell className="text-sm">{order.paymentMethod || "-"}</TableCell>
                       <TableCell className="text-sm">{order.shippingMethod || "-"}</TableCell>
+                      <TableCell className="text-sm">{order.orderStatusText || "-"}</TableCell>
                       <TableCell>
                         <Badge variant={order.shippedAt ? "default" : "secondary"} className="text-xs">
                           {order.shippedAt ? "已出貨" : "待出貨"}

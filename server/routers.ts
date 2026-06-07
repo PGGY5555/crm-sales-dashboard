@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, PENDING_2FA_COOKIE_NAME, ONE_YEAR_MS, PENDING_2FA_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -10,6 +10,7 @@ import {
   getSalesRepPerformance,
   getLifecycleDistribution,
   getCustomerList,
+  getCustomerListMeta,
   getLastSyncLog,
   getLLMContextData,
   saveSetting,
@@ -18,10 +19,12 @@ import {
   clearAllData,
   getCustomerManagement,
   getCustomerManagementExport,
+  getCustomerManagementMeta,
   getCustomerIdsByFilters,
   getDistinctMemberLevels,
   getOrderManagement,
   getOrderManagementExport,
+  getOrderManagementMeta,
   getOrderIdsByFilters,
   getOrderFilterOptions,
   batchDeleteCustomers,
@@ -49,6 +52,16 @@ import { TRPCError } from "@trpc/server";
 import { syncFromShopnex } from "./sync";
 import { invokeLLM } from "./_core/llm";
 import { getImportJobStatus, getActiveImportJobs, retryImportJob } from "./excelImport";
+import { assertPermission, assertAnyPermission } from "./permissionGuard";
+import { parse as parseCookieHeader } from "cookie";
+import {
+  disableTwoFactorForUser,
+  generateTwoFactorForUser,
+  getTwoFactorStatus,
+  verifyAndEnableTwoFactorForUser,
+  verifyTwoFactorLogin,
+} from "./twoFactorService";
+import { sdk } from "./_core/sdk";
 
 const dateRangeSchema = z.object({
   from: z.date().optional(),
@@ -67,15 +80,104 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      ctx.res.clearCookie(PENDING_2FA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    get2FAStatus: protectedProcedure.query(async ({ ctx }) => {
+      return getTwoFactorStatus(ctx.user.id);
+    }),
+    generate2FA: protectedProcedure.mutation(async ({ ctx }) => {
+      try {
+        return await generateTwoFactorForUser(ctx.user.id);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "無法產生 2FA",
+        });
+      }
+    }),
+    verifyAndEnable2FA: protectedProcedure
+      .input(z.object({ token: z.string().min(6).max(8) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await verifyAndEnableTwoFactorForUser(ctx.user.id, input.token);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "驗證失敗",
+          });
+        }
+      }),
+    disable2FA: protectedProcedure
+      .input(z.object({ token: z.string().min(6).max(8) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await disableTwoFactorForUser(ctx.user.id, input.token);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "無法停用 2FA",
+          });
+        }
+      }),
+    getPending2FA: publicProcedure.query(async ({ ctx }) => {
+      const cookies = parseCookieHeader(ctx.req.headers.cookie || "");
+      const pendingCookie = cookies[PENDING_2FA_COOKIE_NAME];
+      const pending = await sdk.verifyPending2FA(pendingCookie);
+      if (!pending) {
+        return { pending: false as const };
+      }
+      return {
+        pending: true as const,
+        name: pending.name,
+        email: pending.email,
+      };
+    }),
+    verifyLogin2FA: publicProcedure
+      .input(z.object({ token: z.string().min(6).max(8) }))
+      .mutation(async ({ ctx, input }) => {
+        const cookies = parseCookieHeader(ctx.req.headers.cookie || "");
+        const pendingCookie = cookies[PENDING_2FA_COOKIE_NAME];
+        const pending = await sdk.verifyPending2FA(pendingCookie);
+        if (!pending) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "2FA 登入階段已過期，請重新登入",
+          });
+        }
+
+        try {
+          const user = await verifyTwoFactorLogin(pending.openId, input.token);
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+
+          const sessionToken = await sdk.createSessionToken(user.openId, {
+            name: user.name || pending.name,
+            email: user.email ?? pending.email,
+            expiresInMs: ONE_YEAR_MS,
+          });
+
+          ctx.res.cookie(COOKIE_NAME, sessionToken, {
+            ...cookieOptions,
+            maxAge: ONE_YEAR_MS,
+          });
+          ctx.res.clearCookie(PENDING_2FA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+
+          return { success: true as const };
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "驗證碼錯誤",
+          });
+        }
+      }),
   }),
 
   dashboard: router({
     /** KPI summary */
     kpi: protectedProcedure
       .input(filtersSchema.optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "dashboard", "您沒有儀表板總覽的存取權限");
         return getKPISummary(input ?? {});
       }),
 
@@ -85,35 +187,40 @@ export const appRouter = router({
         period: z.enum(["day", "week", "month", "quarter"]).default("month"),
         filters: filtersSchema.optional(),
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "dashboard", "您沒有儀表板總覽的存取權限");
         return getSalesTrend(input?.period ?? "month", input?.filters ?? {});
       }),
 
     /** Sales funnel */
     funnel: protectedProcedure
       .input(filtersSchema.optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "funnel", "您沒有銷售漏斗的存取權限");
         return getSalesFunnel(input ?? {});
       }),
 
     /** Sales rep performance */
     salesReps: protectedProcedure
       .input(filtersSchema.optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "dashboard", "您沒有儀表板總覽的存取權限");
         return getSalesRepPerformance(input ?? {});
       }),
 
     /** Customer lifecycle distribution */
     lifecycle: protectedProcedure
       .input(filtersSchema.optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertAnyPermission(ctx.user, ["dashboard", "customer_analysis"], "您沒有客戶分析的存取權限");
         return getLifecycleDistribution(input ?? {});
       }),
 
     /** Customer analytics stats */
     customerAnalyticsStats: protectedProcedure
       .input(filtersSchema.optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_analysis", "您沒有客戶分析的存取權限");
         return getCustomerAnalyticsStats(input ?? {});
       }),
 
@@ -123,14 +230,16 @@ export const appRouter = router({
         from: z.date().optional(),
         to: z.date().optional(),
       }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_analysis", "您沒有客戶分析的存取權限");
         return getShipmentDateKPI(input);
       }),
 
     /** Customer registration trend */
     customerRegistrationTrend: protectedProcedure
       .input(filtersSchema.optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_analysis", "您沒有客戶分析的存取權限");
         return getCustomerRegistrationTrend(input ?? {});
       }),
 
@@ -141,9 +250,21 @@ export const appRouter = router({
         limit: z.number().max(500).default(20),
         search: z.string().optional(),
         lifecycles: z.array(z.string()).optional(),
+        includeTotal: z.boolean().optional(),
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_analysis", "您沒有客戶分析的存取權限");
         return getCustomerList(input ?? {});
+      }),
+
+    customersMeta: protectedProcedure
+      .input(z.object({
+        search: z.string().optional(),
+        lifecycles: z.array(z.string()).optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_analysis", "您沒有客戶分析的存取權限");
+        return getCustomerListMeta(input ?? {});
       }),
 
     /** Recalculate lifecycle for all customers */
@@ -152,6 +273,7 @@ export const appRouter = router({
         referenceDate: z.date(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_analysis", "您沒有客戶分析的存取權限");
         const result = await recalculateAllLifecycles(input.referenceDate);
         await logAudit({
           userId: ctx.user.id, userName: ctx.user.name ?? undefined, userEmail: ctx.user.email ?? undefined,
@@ -163,7 +285,8 @@ export const appRouter = router({
       }),
 
     /** Last sync status */
-    syncStatus: protectedProcedure.query(async () => {
+    syncStatus: protectedProcedure.query(async ({ ctx }) => {
+      await assertAnyPermission(ctx.user, ["data_sync", "api_sync_status"], "您沒有數據同步的存取權限");
       return getLastSyncLog();
     }),
   }),
@@ -277,9 +400,47 @@ export const appRouter = router({
         company: z.string().optional(),
         page: z.number().default(0),
         limit: z.number().max(500).default(50),
+        includeTotal: z.boolean().optional(),
+        includeAggregateStats: z.boolean().optional(),
+        includeIntervalStats: z.boolean().optional(),
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_mgmt", "您沒有客戶資料管理的存取權限");
         return getCustomerManagement(input ?? {});
+      }),
+
+    meta: protectedProcedure
+      .input(z.object({
+        searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "mobileCarrier", "taxId"]).optional(),
+        searchValue: z.string().optional(),
+        registeredFrom: z.date().optional(),
+        registeredTo: z.date().optional(),
+        birthdayMonth: z.number().min(1).max(12).optional(),
+        tags: z.string().optional(),
+        memberLevel: z.union([z.string(), z.array(z.string())]).optional(),
+        creditsOp: z.enum(["lt", "gt", "eq"]).optional(),
+        creditsValue: z.number().optional(),
+        totalSpentOp: z.enum(["lt", "gt", "eq"]).optional(),
+        totalSpentValue: z.number().optional(),
+        totalOrdersOp: z.enum(["lt", "gt", "eq"]).optional(),
+        totalOrdersValue: z.number().optional(),
+        lastPurchaseFrom: z.date().optional(),
+        lastPurchaseTo: z.date().optional(),
+        lastPurchaseAmountOp: z.enum(["lt", "gt", "eq"]).optional(),
+        lastPurchaseAmountValue: z.number().optional(),
+        lastShipmentFrom: z.date().optional(),
+        lastShipmentTo: z.date().optional(),
+        lifecycles: z.array(z.string()).optional(),
+        blacklisted: z.string().optional(),
+        lineUid: z.string().optional(),
+        sfShippedFrom: z.date().optional(),
+        sfShippedTo: z.date().optional(),
+        gender: z.string().optional(),
+        company: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_mgmt", "您沒有客戶資料管理的存取權限");
+        return getCustomerManagementMeta(input ?? {});
       }),
 
     export: protectedProcedure
@@ -311,11 +472,13 @@ export const appRouter = router({
         gender: z.string().optional(),
         company: z.string().optional(),
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_mgmt_export", "您沒有匯出客戶資料的權限");
         return getCustomerManagementExport(input ?? {});
       }),
 
-    memberLevels: protectedProcedure.query(async () => {
+    memberLevels: protectedProcedure.query(async ({ ctx }) => {
+      await assertPermission(ctx.user, "customer_mgmt", "您沒有客戶資料管理的存取權限");
       return getDistinctMemberLevels();
     }),
 
@@ -352,6 +515,7 @@ export const appRouter = router({
         }).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_mgmt_delete", "您沒有刪除客戶資料的權限");
         let targetIds: number[];
         if (input.filters) {
           targetIds = await getCustomerIdsByFilters(input.filters);
@@ -412,6 +576,7 @@ export const appRouter = router({
         credits: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_mgmt", "您沒有客戶資料管理的存取權限");
         const { ids, filters, ...updates } = input;
         // Resolve target IDs
         let targetIds: number[];
@@ -450,7 +615,8 @@ export const appRouter = router({
 
     detail: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_mgmt", "您沒有客戶資料管理的存取權限");
         const result = await getCustomerDetail(input.id);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "找不到該客戶" });
         return result;
@@ -484,6 +650,7 @@ export const appRouter = router({
         company: z.string().nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "customer_mgmt", "您沒有客戶資料管理的存取權限");
         const { id, ...data } = input;
         // Filter out undefined fields
         const updateData: Record<string, any> = {};
@@ -519,12 +686,15 @@ export const appRouter = router({
         orderStatusText: z.string().optional(),
         page: z.number().default(0),
         limit: z.number().max(500).default(50),
+        includeTotal: z.boolean().optional(),
+        includeAggregateStats: z.boolean().optional(),
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "order_mgmt", "您沒有訂單資料管理的存取權限");
         return getOrderManagement(input ?? {});
       }),
 
-    export: protectedProcedure
+    meta: protectedProcedure
       .input(z.object({
         searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "deliveryNumber"]).optional(),
         searchValue: z.string().optional(),
@@ -538,17 +708,40 @@ export const appRouter = router({
         shippingStatus: z.string().optional(),
         orderStatusText: z.string().optional(),
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "order_mgmt", "您沒有訂單資料管理的存取權限");
+        return getOrderManagementMeta(input ?? {});
+      }),
+
+    export: protectedProcedure
+      .input(z.object({
+        ids: z.array(z.number()).optional(),
+        searchField: z.enum(["orderNumber", "customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "deliveryNumber"]).optional(),
+        searchValue: z.string().optional(),
+        orderSource: z.string().optional(),
+        paymentMethod: z.string().optional(),
+        shippingMethod: z.string().optional(),
+        shippingAddress: z.string().optional(),
+        shippedFrom: z.date().optional(),
+        shippedTo: z.date().optional(),
+        logisticsStatus: z.string().optional(),
+        shippingStatus: z.string().optional(),
+        orderStatusText: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "order_mgmt_export", "您沒有匯出訂單資料的權限");
         return getOrderManagementExport(input ?? {});
       }),
 
-    filterOptions: protectedProcedure.query(async () => {
+    filterOptions: protectedProcedure.query(async ({ ctx }) => {
+      await assertPermission(ctx.user, "order_mgmt", "您沒有訂單資料管理的存取權限");
       return getOrderFilterOptions();
     }),
 
     detail: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertPermission(ctx.user, "order_mgmt", "您沒有訂單資料管理的存取權限");
         return getOrderDetail(input.id);
       }),
 
@@ -570,9 +763,7 @@ export const appRouter = router({
         }).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "僅管理員可刪除資料" });
-        }
+        await assertPermission(ctx.user, "order_mgmt_delete", "您沒有刪除訂單資料的權限");
         let targetIds: number[];
         if (input.filters) {
           targetIds = await getOrderIdsByFilters(input.filters);

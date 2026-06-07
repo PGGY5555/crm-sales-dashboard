@@ -13,6 +13,17 @@ import { customers, orders, orderItems, products, syncLogs, importJobs } from ".
 import { classifyCustomer, calculateRepurchaseDays } from "./sync";
 import { storagePut } from "./storage";
 import { clearRawData } from "./clearRawData";
+import { deleteImportStorageFile, purgeImportJobStorage } from "./clearImportStorage";
+import {
+  getCustomerExternalId,
+  getCustomerIdentityFields,
+  getOrderNumberFromRow,
+  isOrderShipped,
+  normalizeCustomerImportRow,
+  normalizeOrderImportRow,
+  pickOrderShippingAddress,
+  pickOrderString,
+} from "../shared/importFieldMapping";
 
 // How many rows to process per HTTP request
 const CHUNK_SIZE = 1000;
@@ -52,16 +63,11 @@ function parseNum(val: string | number | undefined | null): number {
 function mapOrderStatus(statusText: string | undefined): number {
   if (!statusText) return 0;
   const s = String(statusText).trim();
-  if (s.includes("取消") || s.includes("作廢")) return -1;
+  if (s.includes("取消") || s.includes("作廢") || s.includes("退貨")) return -1;
   if (s.includes("完成") || s.includes("已完成")) return 2;
+  if (s.includes("已出貨")) return 2;
   if (s.includes("確認") || s.includes("處理中")) return 1;
   return 0;
-}
-
-function isShippedFromText(statusText: string | undefined): boolean {
-  if (!statusText) return false;
-  const s = String(statusText).trim();
-  return s.includes("已出貨") || s.includes("已送達") || s.includes("完成") || s.includes("已到貨");
 }
 
 function esc(val: string | null | undefined): string {
@@ -112,6 +118,7 @@ async function completeJob(
       result,
       completedAt: new Date(),
     }).where(eq(importJobs.id, jobId));
+    await purgeImportJobStorage(jobId);
   } catch (err) {
     console.error("[ImportJob] Failed to complete job:", err);
   }
@@ -123,6 +130,8 @@ export async function parseAndStoreJson(
   jobId: number,
   fileUrl: string,
   fileType: string,
+  fileName?: string,
+  excelFileKey?: string | null,
 ): Promise<ChunkResult> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -144,7 +153,7 @@ export async function parseAndStoreJson(
   console.log(`[Import Phase1] Job ${jobId}: Downloaded in ${Date.now() - startTime}ms, parsing...`);
 
   // Parse Excel using ExcelJS
-  const rows = await parseExcelAsync(fileBuffer);
+  const rows = await parseExcelAsync(fileBuffer, fileName);
 
   console.log(`[Import Phase1] Job ${jobId}: Parsed ${rows.length} rows in ${Date.now() - startTime}ms`);
 
@@ -155,10 +164,11 @@ export async function parseAndStoreJson(
   if (fileType === "orders") {
     const orderMap = new Map<string, any[]>();
     for (const row of rows as any[]) {
-      const orderNum = String(row["訂單編號"] || "").trim();
+      const normalized = normalizeOrderImportRow(row);
+      const orderNum = getOrderNumberFromRow(normalized);
       if (!orderNum) continue;
       if (!orderMap.has(orderNum)) orderMap.set(orderNum, []);
-      orderMap.get(orderNum)!.push(row);
+      orderMap.get(orderNum)!.push(normalized);
     }
     processedData = Array.from(orderMap.entries()).map(([num, items]) => ({ orderNum: num, items }));
     totalRows = processedData.length;
@@ -176,9 +186,15 @@ export async function parseAndStoreJson(
 
   console.log(`[Import Phase1] Job ${jobId}: JSON stored at S3, total time: ${Date.now() - startTime}ms`);
 
-  // Update job with jsonUrl and totalRows
+  if (excelFileKey) {
+    await deleteImportStorageFile(excelFileKey);
+  }
+
+  // Update job with jsonUrl and totalRows; fileKey now tracks JSON for post-import cleanup
   await db.update(importJobs).set({
     jsonUrl,
+    fileUrl: null,
+    fileKey: jsonKey,
     totalRows,
     status: "processing",
   }).where(eq(importJobs.id, jobId));
@@ -221,10 +237,9 @@ export async function importCustomersChunk(jsonUrl: string, jobId: number, offse
     const subBatch = chunk.slice(i, i + SQL_BATCH);
     const validRows: any[] = [];
 
-    for (const row of subBatch) {
-      const name = row["顧客名稱"]?.trim?.() || (typeof row["顧客名稱"] === "string" ? row["顧客名稱"] : "");
-      const email = row["電子信箱"]?.trim?.() || "";
-      const phone = row["電話"]?.trim?.() || (typeof row["電話"] === "number" ? String(row["電話"]) : "");
+    for (const rawRow of subBatch) {
+      const row = normalizeCustomerImportRow(rawRow);
+      const { name, email, phone } = getCustomerIdentityFields(row);
       if (!name && !email && !phone) { errorCount++; continue; }
       validRows.push(row);
     }
@@ -232,10 +247,8 @@ export async function importCustomersChunk(jsonUrl: string, jobId: number, offse
     if (validRows.length > 0) {
       try {
         const values = validRows.map((row, idx) => {
-          const name = (typeof row["顧客名稱"] === "string" ? row["顧客名稱"].trim() : String(row["顧客名稱"] || "")) || null;
-          const email = (typeof row["電子信箱"] === "string" ? row["電子信箱"].trim() : "") || null;
-          const phone = (typeof row["電話"] === "string" ? row["電話"].trim() : typeof row["電話"] === "number" ? String(row["電話"]) : "") || null;
-          const extId = email || phone || `excel_${offset + i + idx}_${Date.now()}`;
+          const { name, email, phone } = getCustomerIdentityFields(row);
+          const extId = getCustomerExternalId(row, `excel_${offset + i + idx}_${Date.now()}`);
           const birthday = (typeof row["生日"] === "string" ? row["生日"].trim() : "") || null;
           const tags = (typeof row["會員標籤"] === "string" ? row["會員標籤"].trim() : "") || null;
           const memberLevel = (typeof row["會員等級"] === "string" ? row["會員等級"].trim() : "") || null;
@@ -353,28 +366,31 @@ export async function importOrdersChunk(jsonUrl: string, jobId: number, offset: 
     const orderNum = entry.orderNum;
     const orderRows = entry.items;
     try {
-      const firstRow = orderRows[0];
-      const orderDate = parseDate(firstRow["訂單建立時間"]);
-      const shippedAt = parseDate(firstRow["出貨單日期"]);
-      const totalAmount = parseNum(firstRow["訂單總計"]);
-      const customerEmail = firstRow["會員信箱"]?.trim?.() || firstRow["顧客信箱"]?.trim?.() || null;
-      const customerName = firstRow["顧客姓名"]?.trim?.() || null;
-      const customerPhone = firstRow["顧客手機"]?.trim?.() || (typeof firstRow["顧客手機"] === "number" ? String(firstRow["顧客手機"]) : null);
+      const firstRow = normalizeOrderImportRow(orderRows[0]);
+      const orderDate = parseDate(pickOrderString(firstRow, "訂單日期"));
+      const shippedAt = parseDate(pickOrderString(firstRow, "出貨日期"));
+      const totalAmount = parseNum(pickOrderString(firstRow, "訂單金額"));
+      const customerEmail = pickOrderString(firstRow, "顧客 Email") || null;
+      const customerName = pickOrderString(firstRow, "顧客") || null;
+      const customerPhone = pickOrderString(firstRow, "顧客手機") || null;
 
       // Find customerId
       let customerId: number | null = null;
-      if (customerEmail || customerPhone) {
-        const lookupField = customerEmail ? "email" : "phone";
-        const lookupVal = customerEmail || customerPhone;
-        const [found] = await db.select({ id: customers.id }).from(customers).where(eq(
-          lookupField === "email" ? customers.email : customers.phone,
-          lookupVal!
-        )).limit(1);
+      if (customerEmail) {
+        const [found] = await db.select({ id: customers.id }).from(customers)
+          .where(sql`LOWER(${customers.email}) = LOWER(${customerEmail})`)
+          .limit(1);
+        if (found) customerId = found.id;
+      } else if (customerPhone) {
+        const [found] = await db.select({ id: customers.id }).from(customers)
+          .where(eq(customers.phone, customerPhone))
+          .limit(1);
         if (found) customerId = found.id;
       }
 
-      const statusNum = mapOrderStatus(firstRow["訂單處理狀態"]);
-      const shipped = isShippedFromText(firstRow["出貨狀態"]) || !!shippedAt;
+      const statusNum = mapOrderStatus(pickOrderString(firstRow, "訂單狀態"));
+      const shipped = isOrderShipped(firstRow, shippedAt);
+      const paymentStatus = pickOrderString(firstRow, "付款狀態") || null;
 
       await db.insert(orders).values({
         externalId: orderNum,
@@ -385,25 +401,25 @@ export async function importOrdersChunk(jsonUrl: string, jobId: number, offset: 
         total: String(totalAmount),
         orderStatus: statusNum,
         isShipped: shipped,
-        paymentMethod: firstRow["付款方式"]?.trim?.() || null,
-        shippingMethod: firstRow["配送方式"]?.trim?.() || null,
-        recipientName: firstRow["收件人姓名"]?.trim?.() || null,
-        recipientPhone: firstRow["收件人手機"]?.trim?.() || (typeof firstRow["收件人手機"] === "number" ? String(firstRow["收件人手機"]) : null),
-        recipientEmail: firstRow["收件人信箱"]?.trim?.() || null,
-        shippingAddress: firstRow["收貨地址"]?.trim?.() || null,
-        orderSource: firstRow["訂單來源"]?.trim?.() || null,
-        shipmentNumber: firstRow["出貨單號碼"]?.trim?.() || (typeof firstRow["出貨單號碼"] === "number" ? String(firstRow["出貨單號碼"]) : null),
-        shippingStatus: firstRow["出貨狀態"]?.trim?.() || null,
-        orderStatusText: firstRow["訂單狀態"]?.trim?.() || firstRow["訂單處理狀態"]?.trim?.() || null,
+        progress: paymentStatus,
+        paymentMethod: pickOrderString(firstRow, "付款方式") || null,
+        shippingMethod: pickOrderString(firstRow, "寄送方式") || null,
+        recipientName: pickOrderString(firstRow, "收件人名") || null,
+        recipientPhone: pickOrderString(firstRow, "收件人電話") || null,
+        shippingAddress: pickOrderShippingAddress(firstRow) || null,
+        shipmentNumber: pickOrderString(firstRow, "出貨單號") || null,
+        shippingStatus: pickOrderString(firstRow, "出貨狀態") || null,
+        orderStatusText: pickOrderString(firstRow, "訂單狀態") || null,
         rawData: firstRow,
       }).onDuplicateKeyUpdate({
         set: {
           customerId, customerName, customerEmail, customerPhone,
           orderDate, shippedAt, total: String(totalAmount),
           orderStatus: statusNum, isShipped: shipped,
-          shipmentNumber: firstRow["出貨單號碼"]?.trim?.() || (typeof firstRow["出貨單號碼"] === "number" ? String(firstRow["出貨單號碼"]) : null),
-          shippingStatus: firstRow["出貨狀態"]?.trim?.() || null,
-          orderStatusText: firstRow["訂單狀態"]?.trim?.() || firstRow["訂單處理狀態"]?.trim?.() || null,
+          progress: paymentStatus,
+          shipmentNumber: pickOrderString(firstRow, "出貨單號") || null,
+          shippingStatus: pickOrderString(firstRow, "出貨狀態") || null,
+          orderStatusText: pickOrderString(firstRow, "訂單狀態") || null,
           rawData: firstRow,
         },
       });
@@ -411,20 +427,22 @@ export async function importOrdersChunk(jsonUrl: string, jobId: number, offset: 
       // Get the order ID for items
       const [insertedOrder] = await db.select({ id: orders.id }).from(orders).where(eq(orders.externalId, orderNum)).limit(1);
       if (insertedOrder) {
+        await db.delete(orderItems).where(eq(orderItems.orderId, insertedOrder.id));
+        await db.delete(orderItems).where(eq(orderItems.orderExternalId, orderNum));
+
         for (const itemRow of orderRows) {
-          const productName = itemRow["商品名稱"]?.trim?.() || null;
+          const normalizedItem = normalizeOrderImportRow(itemRow);
+          const productName = pickOrderString(normalizedItem, "品名") || null;
           if (!productName) continue;
           try {
             await db.insert(orderItems).values({
               orderId: insertedOrder.id,
               orderExternalId: orderNum,
               productName,
-              productSku: itemRow["商品SKU"]?.trim?.() || null,
-              productSpec: itemRow["商品規格"]?.trim?.() || null,
-              quantity: parseNum(itemRow["商品購買數量"]) || 1,
-              unitPrice: String(parseNum(itemRow["商品價格"])),
-            }).onDuplicateKeyUpdate({
-              set: { quantity: parseNum(itemRow["商品購買數量"]) || 1, unitPrice: String(parseNum(itemRow["商品價格"])) },
+              productSku: pickOrderString(normalizedItem, "SKU") || null,
+              productSpec: pickOrderString(normalizedItem, "規格") || null,
+              quantity: parseNum(pickOrderString(normalizedItem, "數量")) || 1,
+              unitPrice: String(parseNum(pickOrderString(normalizedItem, "單價"))),
             });
           } catch {}
         }

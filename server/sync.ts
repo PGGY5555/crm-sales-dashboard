@@ -7,6 +7,7 @@ import { getDb } from "./db";
 import { customers, orders, syncLogs } from "../drizzle/schema";
 import { ShopnexAPI } from "./shopnex";
 import { clearRawData } from "./clearRawData";
+import { isValidOrderForStats } from "./customerStats";
 
 const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
@@ -228,9 +229,7 @@ async function updateCustomerStats(db: NonNullable<Awaited<ReturnType<typeof get
     const custOrders = await db.select().from(orders)
       .where(eq(orders.customerExternalId, cust.externalId));
 
-    // Only count orders with orderStatusText='已完成' and shippingStatus!='已退貨'
-    // Note: if orderStatusText is NULL (old data without status), still include; if explicitly set to non-已完成, exclude
-    const validOrders = custOrders.filter(o => o.orderStatus !== -1 && (o.orderStatusText === '已完成' || !o.orderStatusText) && o.shippingStatus !== '已退貨');
+    const validOrders = custOrders.filter(o => isValidOrderForStats(o));
     const shippedOrders = validOrders.filter(o => o.isShipped && o.shippedAt);
 
     const totalOrders = validOrders.length;
