@@ -327,22 +327,23 @@ export default function CustomerManagement() {
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      // If items are selected, export only selected items from current data
-      if (selectedIds.size > 0) {
-        const selectedItems = (data?.items || []).filter(c => selectedIds.has(c.id));
-        exportToExcel(selectedItems);
-        return;
-      }
-      // Otherwise export all filtered results
       const filters = buildFilters();
       delete (filters as any).page;
       delete (filters as any).limit;
+
+      if (selectedIds.size > 0 && !selectAllMode) {
+        (filters as any).ids = Array.from(selectedIds);
+      }
+
       const items = await utils.customerMgmt.export.fetch(filters as any);
-      exportToExcel(items || []);
-    } catch (err) {
+      if (!items?.length) {
+        toast.error("沒有可匯出的資料");
+        return;
+      }
+      exportToExcel(items);
+    } catch (err: any) {
       console.error('Export failed:', err);
-      toast.error('匯出失敗，僅匯出當頁資料');
-      exportToExcel(data?.items || []);
+      toast.error(err?.message || '匯出失敗，請稍後再試');
     } finally {
       setIsExporting(false);
     }
@@ -385,20 +386,23 @@ export default function CustomerManagement() {
   const handleFbExport = async () => {
     setIsExportingFB(true);
     try {
-      if (selectedIds.size > 0 && !selectAllMode) {
-        const selectedItems = (data?.items || []).filter(c => selectedIds.has(c.id));
-        exportFbAudience(selectedItems);
-        return;
-      }
       const filters = buildFilters();
       delete (filters as any).page;
       delete (filters as any).limit;
+
+      if (selectedIds.size > 0 && !selectAllMode) {
+        (filters as any).ids = Array.from(selectedIds);
+      }
+
       const items = await utils.customerMgmt.export.fetch(filters as any);
-      exportFbAudience(items || []);
-    } catch (err) {
+      if (!items?.length) {
+        toast.error("沒有可匯出的資料");
+        return;
+      }
+      exportFbAudience(items);
+    } catch (err: any) {
       console.error('FB export failed:', err);
-      toast.error('FB受眾匯出失敗，僅匯出當頁資料');
-      exportFbAudience(data?.items || []);
+      toast.error(err?.message || 'FB受眾匯出失敗，請稍後再試');
     } finally {
       setIsExportingFB(false);
     }
@@ -548,7 +552,7 @@ export default function CustomerManagement() {
           {canExport && (
             <Button onClick={handleExport} disabled={isExporting || !data?.items?.length} variant="outline" size="sm">
               <Download className="w-4 h-4 mr-2" />
-              {isExporting ? "匯出中..." : selectedIds.size > 0 ? `匯出 ${selectedIds.size} 筆` : "匯出 Excel"}
+              {isExporting ? "匯出中..." : (selectedIds.size > 0 || selectAllMode) ? `匯出 ${effectiveSelectedCount.toLocaleString()} 筆` : "匯出 Excel"}
             </Button>
           )}
           {canExport && (

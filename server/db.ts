@@ -5,6 +5,7 @@ import { validOrderStatusDrizzle, validOrderStatusSql, resetAllCustomerConsumpti
 import { getDefaultPermissions, getAllPermissions, type PermissionKey } from "../shared/permissions";
 import { encrypt, decrypt, maskToken } from "./crypto";
 import { ENV, isOwnerAccount } from './_core/env';
+import { CUSTOMER_EXPORT_LIMIT } from "../shared/const";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1024,6 +1025,8 @@ export interface CustomerManagementFilters {
   // Pagination
   page?: number;
   limit?: number;
+  /** Export/delete by specific customer IDs. */
+  ids?: number[];
   /** When false, skip COUNT(*) — use with a separate meta query for faster first paint. */
   includeTotal?: boolean;
   includeAggregateStats?: boolean;
@@ -1036,6 +1039,10 @@ export async function getCustomerManagement(filters: CustomerManagementFilters =
   if (!db) return { items: [], total: null, aggregateStats: null };
 
   const conditions: any[] = [];
+
+  if (filters.ids?.length) {
+    conditions.push(inArray(customers.id, filters.ids));
+  }
 
   // X-axis: text search
   if (filters.searchValue && filters.searchField) {
@@ -1314,12 +1321,22 @@ export async function getCustomerManagementMeta(
 
 /** Get all customers matching filters (for export, no pagination) */
 export async function getCustomerManagementExport(filters: CustomerManagementFilters = {}) {
+  if (filters.ids && filters.ids.length > CUSTOMER_EXPORT_LIMIT) {
+    throw new Error(
+      `選取的客戶數量 (${filters.ids.length.toLocaleString()}) 超過匯出上限 ${CUSTOMER_EXPORT_LIMIT.toLocaleString()} 筆`,
+    );
+  }
   const result = await getCustomerManagement({
     ...filters,
     page: 0,
-    limit: 100000,
+    limit: CUSTOMER_EXPORT_LIMIT + 1,
     includeIntervalStats: true,
   });
+  if (result.items.length > CUSTOMER_EXPORT_LIMIT) {
+    throw new Error(
+      `符合條件的客戶數量超過匯出上限 ${CUSTOMER_EXPORT_LIMIT.toLocaleString()} 筆，請縮小篩選範圍`,
+    );
+  }
   return result.items;
 }
 

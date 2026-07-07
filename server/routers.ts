@@ -445,6 +445,7 @@ export const appRouter = router({
 
     export: protectedProcedure
       .input(z.object({
+        ids: z.array(z.number()).optional(),
         searchField: z.enum(["customerName", "customerPhone", "customerEmail", "recipientName", "recipientPhone", "recipientEmail", "mobileCarrier", "taxId"]).optional(),
         searchValue: z.string().optional(),
         registeredFrom: z.date().optional(),
